@@ -80,7 +80,7 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
 
       <div className="relative z-10 max-w-[1240px] mx-auto px-6 pt-32 md:pt-44 pb-20">
         <p className="font-data text-xs md:text-sm tracking-[0.28em] text-gold/80 mb-10">
-          FOREX · GOLD · CRYPTO · IDX EQUITIES
+          FOREX · COMMODITIES · CRYPTO · STOCK MARKET
         </p>
 
         <h1 className="font-display text-bone leading-[0.95] tracking-[-0.01em] text-5xl sm:text-7xl lg:text-[5.5rem]" style={{ fontWeight: 400 }}>
@@ -90,7 +90,7 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
         </h1>
 
         <p className="mt-8 max-w-xl text-lg md:text-xl text-bone-dim font-grotesk leading-relaxed">
-          A trading desk run in the open — capital, P&amp;L, and every fill published in real time, across four markets.
+          Built on radical transparency — every position, every drawdown, every return published in real time. SANZ CAPITAL operates as a family office with institutional discipline: systematic risk management, multi-asset allocation, and long-term capital compounding across forex, commodities, crypto, and global equities.
         </p>
 
         <div className="mt-10 flex flex-wrap items-center gap-3">

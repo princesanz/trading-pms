@@ -22,7 +22,6 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
     // single STATIC terrain frame (no animation loop / no mouse parallax) so the
     // canvas always mounts — skipping it entirely was leaving prod on the gradient.
     const mount = mountRef.current;
-    console.log('[GoldTerrain] effect run · reduced =', reduced, '· mount?', !!mount);
     if (!mount) return;                  // null guard
 
     let raf = 0;
@@ -109,7 +108,6 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
           window.addEventListener('mousemove', onMouse);
           animate();
         }
-        console.log('[GoldTerrain] init OK · canvas appended ·', reduced ? 'static frame' : 'animating');
       } catch (err) {
         initialized = false; // leave the CSS gradient fallback
         console.error('[GoldTerrain] init failed:', err);
@@ -126,7 +124,6 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
 
     const handleSize = () => {
       const w = mount.clientWidth, h = mount.clientHeight;
-      console.log('[GoldTerrain] container size:', w, h); // temporary diagnostic
       if (w === 0 || h === 0) return;     // wait until laid out
       if (!initialized) init(w, h);
       else resize(w, h);

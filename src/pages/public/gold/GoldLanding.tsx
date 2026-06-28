@@ -39,9 +39,9 @@ export function GoldLanding() {
 
     const pct = (v: number) => (totalAum > 0 ? Math.round((v / totalAum) * 100) : 0);
     const slices: AllocSlice[] = [
-      { desk: 'Forex & Gold', equityUsd: forexEq, pct: pct(forexEq), color: '#E8D199', desc: 'Majors, indices & XAUUSD' },
+      { desk: 'Forex, Commodities & Indices', equityUsd: forexEq, pct: pct(forexEq), color: '#E8D199', desc: 'Majors, indices & XAUUSD' },
       { desk: 'Crypto', equityUsd: cryptoEq, pct: pct(cryptoEq), color: '#7F95A8', desc: 'Spot & perpetual futures' },
-      { desk: 'IDX Equities', equityUsd: sahamEqUsd, pct: pct(sahamEqUsd), color: '#7FB89A', desc: 'Indonesian blue-chips' },
+      { desk: 'Stock Market', equityUsd: sahamEqUsd, pct: pct(sahamEqUsd), color: '#7FB89A', desc: 'Indonesian blue-chips' },
     ];
 
     // Win rate — from closed positions that carry a realized P&L.
@@ -68,7 +68,7 @@ export function GoldLanding() {
     // Track record — merge closed views, newest first.
     const rows: TrackRow[] = [
       ...pub.forexClosed.map((t): TrackRow => ({
-        inst: t.instrument, desk: 'Forex & Gold', side: t.direction === 'Sell' ? 'SHORT' : 'LONG',
+        inst: t.instrument, desk: 'Forex, Commodities & Indices', side: t.direction === 'Sell' ? 'SHORT' : 'LONG',
         entry: fmtPrice(t.harga_entry), exit: t.harga_exit != null ? fmtPrice(t.harga_exit) : '—',
         pnl: t.net_pnl ?? null, date: (t.tanggal_tutup ?? t.tanggal_buka) ?? '',
       })),
@@ -83,7 +83,7 @@ export function GoldLanding() {
         pnl: s.realized_pnl ?? null, date: s.tanggal,
       })),
       ...pub.stockSells.map((s): TrackRow => ({
-        inst: s.ticker, desk: 'IDX Equities', side: 'SELL',
+        inst: s.ticker, desk: 'Stock Market', side: 'SELL',
         entry: '—', exit: fmtPrice(s.harga), pnl: null, date: s.tanggal,
       })),
     ].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 12);

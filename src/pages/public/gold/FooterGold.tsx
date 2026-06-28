@@ -9,7 +9,12 @@ export function FooterGold() {
             <span className="w-5 h-5 rounded-full" style={{ background: 'radial-gradient(circle at 35% 30%, #F0D58C, #C9A86A 70%)' }} aria-hidden />
             <span className="font-display text-2xl tracking-tight text-bone" style={{ fontWeight: 600 }}>SANZ CAPITAL</span>
           </div>
-          <p className="font-data text-sm text-bone-dim mt-3">Radical transparency · Real-time performance</p>
+          <div className="mt-4 max-w-lg">
+            <p className="font-data text-[13px] text-bone-dim leading-relaxed uppercase tracking-wide">
+              <span className="text-gold">SANZ CAPITAL</span> · Where every number tells the truth.<br/>
+              Compounding capital with discipline, transparency, and relentless precision — across every market, every cycle, every day.
+            </p>
+          </div>
         </div>
         <a
           href="#top"
