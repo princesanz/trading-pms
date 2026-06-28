@@ -74,11 +74,11 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
   ];
 
   return (
-    <section id="top" className="relative bg-ink text-bone min-h-[700px] lg:min-h-screen">
+    <section id="top" className="relative text-bone min-h-[700px] lg:min-h-screen">
       <GoldTerrain reduced={reduced} />
       <GoldNav />
 
-      <div className="relative max-w-[1240px] mx-auto px-6 pt-32 md:pt-44 pb-20">
+      <div className="relative z-10 max-w-[1240px] mx-auto px-6 pt-32 md:pt-44 pb-20">
         <p className="font-data text-xs md:text-sm tracking-[0.28em] text-gold/80 mb-10">
           FOREX · GOLD · CRYPTO · IDX EQUITIES
         </p>

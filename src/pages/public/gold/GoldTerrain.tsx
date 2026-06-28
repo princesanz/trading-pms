@@ -79,17 +79,18 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
         geometry.rotateX(-Math.PI / 2);
 
         const colors: number[] = [];
-        const gold = new THREE.Color('#E8D199');
+        const gold = new THREE.Color('#F0D58C');  // bright champagne (clearly visible on warm-black)
         const steel = new THREE.Color('#7F95A8');
         const pos = geometry.attributes.position;
         for (let i = 0; i < pos.count; i++) {
           const d = Math.min(1, Math.hypot(pos.getX(i), pos.getZ(i)) / (SIZE * SEP * 0.5));
-          const c = gold.clone().lerp(steel, d * 0.85);
+          const c = gold.clone().lerp(steel, d * 0.6);  // stay mostly gold toward the edges
           colors.push(c.r, c.g, c.b);
         }
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-        material = new THREE.PointsMaterial({ size: 0.045, vertexColors: true, transparent: true, opacity: 0.9 });
+        // Fixed pixel size (no distance attenuation) so the points are always crisp/visible.
+        material = new THREE.PointsMaterial({ size: 2.5, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 1 });
         scene.add(new THREE.Points(geometry, material));
 
         base = Float32Array.from(pos.array as Float32Array);
@@ -163,7 +164,7 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
   }, [reduced]);
 
   return (
-    <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+    <div className="absolute inset-0 z-0 overflow-hidden" aria-hidden>
       {/* Always-present warm-black + champagne atmosphere */}
       <div
         className="absolute inset-0"
