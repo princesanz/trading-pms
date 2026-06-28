@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "sanz-brain": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "C:\\Users\\SANZ\\OneDrive\\Dokumen\\sanz-brain"
+      ]
+    }
+  }
+}
