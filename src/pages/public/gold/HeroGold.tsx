@@ -79,43 +79,57 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
       <GoldNav />
 
       <div className="relative z-10 max-w-[1240px] mx-auto px-6 pt-32 md:pt-44 pb-20">
-        <p className="font-data text-xs md:text-sm tracking-[0.28em] text-gold/80 mb-10">
-          FOREX · COMMODITIES · CRYPTO · STOCK MARKET
-        </p>
+        <div className="flex flex-col lg:flex-row gap-16 lg:gap-12 lg:items-center justify-between">
+          
+          {/* Left Side: Branding */}
+          <div className="flex-1">
+            <h1 className="font-display text-6xl lg:text-8xl text-gold font-bold leading-none tracking-tight">
+              SANZ CAPITAL
+            </h1>
+            
+            <div className="mt-8">
+              <span className="inline-block w-12 h-12 lg:w-16 lg:h-16 rounded-full border border-gold" style={{ background: 'radial-gradient(circle at 35% 30%, #F0D58C, #C9A86A 70%)' }} aria-hidden />
+            </div>
 
-        <h1 className="font-display text-bone leading-[0.95] tracking-[-0.01em] text-5xl sm:text-7xl lg:text-[5.5rem]" style={{ fontWeight: 400 }}>
-          Every position.<br />
-          Every number.<br />
-          <span className="italic text-gold">Live.</span>
-        </h1>
+            <p className="mt-8 font-data text-xs md:text-sm tracking-[0.28em] text-gold/80 uppercase">
+              FOREX · COMMODITIES · CRYPTO · STOCK MARKET
+            </p>
 
-        <p className="mt-8 max-w-xl text-lg md:text-xl text-bone-dim font-grotesk leading-relaxed">
-          Built on radical transparency — every position, every drawdown, every return published in real time. SANZ CAPITAL operates as a family office with institutional discipline: systematic risk management, multi-asset allocation, and long-term capital compounding across forex, commodities, crypto, and global equities.
-        </p>
+            <p className="font-data mt-8 flex items-center gap-2 text-xs text-bone-dim">
+              <span className="relative flex h-2 w-2">
+                {!reduced && <span className="absolute inline-flex h-full w-full rounded-full bg-positive opacity-70 animate-ping" />}
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-positive" />
+              </span>
+              Live · XAUUSD {xau != null ? xau.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'} · {updatedLabel}
+            </p>
+          </div>
 
-        <div className="mt-10 flex flex-wrap items-center gap-3">
-          <a
-            href="#performance"
-            className="font-data inline-flex items-center gap-2 px-6 py-3.5 text-sm rounded text-ink transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
-            style={{ background: 'linear-gradient(135deg, #F0D58C, #C9A86A)', fontWeight: 600 }}
-          >
-            View live portfolio <ArrowUpRight className="w-4 h-4" />
-          </a>
-          <a
-            href="#track"
-            className="font-data inline-flex items-center gap-2 px-6 py-3.5 text-sm rounded border border-gold/40 text-gold hover:border-gold transition-colors"
-          >
-            Track record <ArrowRight className="w-4 h-4" />
-          </a>
+          {/* Right Side: Vision/Mission */}
+          <div className="flex-1 lg:max-w-xl">
+            <p className="text-xl lg:text-2xl text-bone font-light font-grotesk leading-relaxed">
+              A family office built on radical transparency.<br />
+              Every position, every drawdown, every return — published in real time across forex, commodities, crypto, and global equities.
+              <br /><br />
+              SANZ CAPITAL operates with institutional discipline: systematic risk management, multi-asset allocation, and long-term capital compounding.
+            </p>
+
+            <div className="mt-10 flex flex-wrap items-center gap-3">
+              <a
+                href="#performance"
+                className="font-data inline-flex items-center gap-2 px-6 py-3.5 text-sm rounded text-ink transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+                style={{ background: 'linear-gradient(135deg, #F0D58C, #C9A86A)', fontWeight: 600 }}
+              >
+                View live portfolio <ArrowUpRight className="w-4 h-4" />
+              </a>
+              <a
+                href="#track"
+                className="font-data inline-flex items-center gap-2 px-6 py-3.5 text-sm rounded border border-gold/40 text-gold hover:border-gold transition-colors"
+              >
+                Track record <ArrowRight className="w-4 h-4" />
+              </a>
+            </div>
+          </div>
         </div>
-
-        <p className="font-data mt-7 flex items-center gap-2 text-xs text-bone-dim">
-          <span className="relative flex h-2 w-2">
-            {!reduced && <span className="absolute inline-flex h-full w-full rounded-full bg-positive opacity-70 animate-ping" />}
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-positive" />
-          </span>
-          Live · XAUUSD {xau != null ? xau.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'} · {updatedLabel}
-        </p>
 
         {/* Stat strip */}
         <div className="mt-16 grid grid-cols-2 md:grid-cols-4 border-t border-hairline">
