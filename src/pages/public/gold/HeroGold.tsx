@@ -78,24 +78,33 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
       <GoldTerrain reduced={reduced} />
       <GoldNav />
 
-      <div className="relative z-10 max-w-[1240px] mx-auto px-6 pt-32 md:pt-44 pb-20">
-        <div className="flex flex-col lg:flex-row gap-16 lg:gap-12 lg:items-center justify-between">
-          
-          {/* Left Side: Branding */}
-          <div className="flex-1">
-            <h1 className="font-display text-6xl lg:text-8xl text-gold font-bold leading-none tracking-tight">
-              SANZ CAPITAL
-            </h1>
-            
-            <div className="mt-8">
-              <span className="inline-block w-12 h-12 lg:w-16 lg:h-16 rounded-full border border-gold" style={{ background: 'radial-gradient(circle at 35% 30%, #F0D58C, #C9A86A 70%)' }} aria-hidden />
-            </div>
+      {/* Dark overlay on the left for text legibility over the terrain */}
+      <div className="absolute inset-0 z-[5] bg-gradient-to-r from-black/60 to-transparent" aria-hidden />
 
-            <p className="mt-8 font-data text-xs md:text-sm tracking-[0.28em] text-gold/80 uppercase">
-              FOREX · COMMODITIES · CRYPTO · STOCK MARKET
+      <div className="relative z-10 max-w-[1240px] mx-auto px-8 lg:px-16 pt-32 md:pt-44 pb-24 min-h-screen flex flex-col justify-center">
+        <div className="w-full flex flex-col lg:flex-row gap-16 lg:gap-12 lg:items-center">
+
+          {/* Left Side: Branding — 55% */}
+          <div className="lg:w-[55%]">
+            <p className="font-data text-xs tracking-[0.32em] text-gold-deep uppercase">
+              Family Office
             </p>
 
-            <p className="font-data mt-8 flex items-center gap-2 text-xs text-bone-dim">
+            <h1
+              className="mt-6 font-display text-5xl lg:text-7xl font-light tracking-[0.06em] leading-none"
+              style={{ color: '#F5F0E8' }}
+            >
+              SANZ CAPITAL
+            </h1>
+
+            {/* Thin gold rule */}
+            <div className="mt-7 h-px w-2/5 bg-gradient-to-r from-gold to-transparent" aria-hidden />
+
+            <p className="mt-7 font-data text-xs tracking-[0.32em] text-bone-dim uppercase">
+              Forex · Commodities · Crypto · Stock Market
+            </p>
+
+            <p className="font-data mt-10 flex items-center gap-2 text-xs text-bone-dim">
               <span className="relative flex h-2 w-2">
                 {!reduced && <span className="absolute inline-flex h-full w-full rounded-full bg-positive opacity-70 animate-ping" />}
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-positive" />
@@ -104,13 +113,18 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
             </p>
           </div>
 
-          {/* Right Side: Vision/Mission */}
-          <div className="flex-1 lg:max-w-xl">
-            <p className="text-xl lg:text-2xl text-bone font-light font-grotesk leading-relaxed">
-              A family office built on radical transparency.<br />
-              Every position, every drawdown, every return — published in real time across forex, commodities, crypto, and global equities.
-              <br /><br />
-              SANZ CAPITAL operates with institutional discipline: systematic risk management, multi-asset allocation, and long-term capital compounding.
+          {/* Right Side: Vision/Mission — 45% */}
+          <div className="lg:w-[45%]">
+            <p className="font-display text-lg lg:text-xl font-light leading-relaxed" style={{ color: '#F5F0E8' }}>
+              A family office built on radical transparency.
+              Every position, every drawdown, every return —
+              published in real time across forex, commodities,
+              crypto, and global equities.
+            </p>
+
+            <p className="mt-6 text-sm text-bone-dim font-grotesk font-light leading-relaxed">
+              Institutional discipline. Systematic risk management.
+              Multi-asset allocation. Long-term capital compounding.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-3">
