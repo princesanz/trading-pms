@@ -18,8 +18,11 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
   const mountRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (reduced) return;                 // static gradient only
+    // NOTE: we do NOT early-return on reduced motion. Reduced motion renders a
+    // single STATIC terrain frame (no animation loop / no mouse parallax) so the
+    // canvas always mounts — skipping it entirely was leaving prod on the gradient.
     const mount = mountRef.current;
+    console.log('[GoldTerrain] effect run · reduced =', reduced, '· mount?', !!mount);
     if (!mount) return;                  // null guard
 
     let raf = 0;
@@ -90,12 +93,25 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
         scene.add(new THREE.Points(geometry, material));
 
         base = Float32Array.from(pos.array as Float32Array);
-        clock = new THREE.Clock();
 
-        window.addEventListener('mousemove', onMouse);
-        animate();
-      } catch {
+        if (reduced) {
+          // Reduced motion: render ONE static, gently-deformed frame — no loop, no parallax.
+          const p = geometry.attributes.position;
+          for (let i = 0; i < p.count; i++) {
+            const x = base[i * 3], z = base[i * 3 + 2];
+            p.setY(i, Math.sin(x * 0.6 + 1.2) * 0.35 + Math.cos(z * 0.5 + 1.0) * 0.35);
+          }
+          p.needsUpdate = true;
+          renderer.render(scene, camera);
+        } else {
+          clock = new THREE.Clock();
+          window.addEventListener('mousemove', onMouse);
+          animate();
+        }
+        console.log('[GoldTerrain] init OK · canvas appended ·', reduced ? 'static frame' : 'animating');
+      } catch (err) {
         initialized = false; // leave the CSS gradient fallback
+        console.error('[GoldTerrain] init failed:', err);
       }
     };
 
@@ -104,6 +120,7 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
+      if (reduced && scene) renderer.render(scene, camera); // keep static frame visible
     };
 
     const handleSize = () => {
