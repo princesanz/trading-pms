@@ -80,7 +80,7 @@ export function EquityCurveGold({
         </div>
 
         <div className="bg-ink-2 border border-hairline rounded-lg p-4 md:p-6">
-          <div className="h-72 md:h-96">
+          <div className="h-72 md:h-96 w-full min-h-[300px]">
             {hasData ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data} margin={{ top: 10, right: 8, bottom: 0, left: 8 }}>

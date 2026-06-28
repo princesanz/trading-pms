@@ -21,7 +21,7 @@ export function AllocationGold({ slices, totalAum, reduced }: { slices: AllocSli
 
         <div className="grid lg:grid-cols-2 gap-12 items-center">
           {/* Donut */}
-          <div className="relative h-72 md:h-80">
+          <div className="relative h-72 md:h-80 w-full min-h-[300px]">
             {data.length > 0 ? (
               <>
                 <ResponsiveContainer width="100%" height="100%">

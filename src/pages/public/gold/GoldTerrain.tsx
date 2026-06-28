@@ -108,6 +108,7 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
 
     const handleSize = () => {
       const w = mount.clientWidth, h = mount.clientHeight;
+      console.log('[GoldTerrain] container size:', w, h); // temporary diagnostic
       if (w === 0 || h === 0) return;     // wait until laid out
       if (!initialized) init(w, h);
       else resize(w, h);
@@ -157,7 +158,7 @@ export function GoldTerrain({ reduced }: { reduced: boolean }) {
         }}
       />
       {/* WebGL canvas mounts here once the container reports a non-zero size */}
-      <div ref={mountRef} className="absolute inset-0" />
+      <div ref={mountRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
       {/* Fade the terrain into the page bottom */}
       <div className="absolute inset-x-0 bottom-0 h-40" style={{ background: 'linear-gradient(to bottom, rgba(11,10,8,0), #0B0A08)' }} />
     </div>

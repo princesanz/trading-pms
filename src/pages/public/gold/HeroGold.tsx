@@ -74,7 +74,7 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
   ];
 
   return (
-    <section id="top" className="relative bg-ink text-bone">
+    <section id="top" className="relative bg-ink text-bone min-h-[700px] lg:min-h-screen">
       <GoldTerrain reduced={reduced} />
       <GoldNav />
 
