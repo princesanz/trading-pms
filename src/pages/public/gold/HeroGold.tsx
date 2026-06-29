@@ -14,6 +14,39 @@ type HeroProps = {
   reduced: boolean;
 };
 
+// Multi-asset live ticker strip. XAUUSD also arrives via props from the
+// internal forex provider (used as a fallback); prices + change% come from the
+// /api/market-proxy relay, which fetches Yahoo Finance server-side to dodge
+// CORS. Each symbol fails gracefully to "—".
+const TICKERS: { label: string; symbol: string }[] = [
+  { label: 'XAUUSD', symbol: 'XAUUSD' },
+  { label: 'DXY', symbol: 'DXY' },
+  { label: 'BTCUSDT', symbol: 'BTC-USD' },
+  { label: 'SPX', symbol: '^GSPC' },
+  { label: 'IHSG', symbol: '^JKSE' },
+];
+
+type Tick = { price: number | null; changePct: number | null };
+type ProxyQuote = { symbol: string; price: number | null; changePercent: number | null };
+
+async function fetchTicks(): Promise<Record<string, Tick>> {
+  const out: Record<string, Tick> = {};
+  try {
+    const qs = TICKERS.map((t) => t.symbol).join(',');
+    const r = await fetch(`/api/market-proxy?symbols=${encodeURIComponent(qs)}`);
+    if (!r.ok) return out;
+    const quotes: ProxyQuote[] = await r.json();
+    const bySymbol = new Map(quotes.map((q) => [q.symbol, q]));
+    for (const t of TICKERS) {
+      const q = bySymbol.get(t.symbol);
+      out[t.label] = { price: q?.price ?? null, changePct: q?.changePercent ?? null };
+    }
+  } catch {
+    // leave out empty -> each label renders its fallback
+  }
+  return out;
+}
+
 function GoldNav() {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
@@ -58,6 +91,22 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+  // Multi-asset ticker state, keyed by label. XAUUSD seeds from the live prop.
+  const [ticks, setTicks] = useState<Record<string, Tick>>({});
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const next = await fetchTicks();
+      if (alive) setTicks(next);
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
+  const fmtPrice = (n: number) =>
+    n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   const updatedLabel = (() => {
     if (xauUpdated == null) return 'connecting…';
     const s = Math.max(0, Math.floor((now - xauUpdated) / 1000));
@@ -104,13 +153,33 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
               Forex · Commodities · Crypto · Stock Market
             </p>
 
-            <p className="font-data mt-10 flex items-center gap-2 text-xs text-bone-dim">
-              <span className="relative flex h-2 w-2">
-                {!reduced && <span className="absolute inline-flex h-full w-full rounded-full bg-positive opacity-70 animate-ping" />}
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-positive" />
+            <div className="font-data mt-10 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+              <span className="flex items-center gap-2 text-bone-dim">
+                <span className="relative flex h-2 w-2">
+                  {!reduced && <span className="absolute inline-flex h-full w-full rounded-full bg-positive opacity-70 animate-ping" />}
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-positive" />
+                </span>
+                Live · {updatedLabel}
               </span>
-              Live · XAUUSD {xau != null ? xau.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'} · {updatedLabel}
-            </p>
+              {TICKERS.map(({ label }) => {
+                // XAUUSD falls back to the live prop if the Yahoo fetch hasn't landed.
+                const t = ticks[label];
+                const price = t?.price ?? (label === 'XAUUSD' ? xau : null);
+                const chg = t?.changePct ?? null;
+                const up = chg != null && chg >= 0;
+                return (
+                  <span key={label} className="flex items-center gap-1.5 whitespace-nowrap">
+                    <span className="text-gold-deep">{label}</span>
+                    <span style={{ color: '#F5F0E8' }}>{price != null ? fmtPrice(price) : '—'}</span>
+                    {chg != null && (
+                      <span style={{ color: up ? '#4ade80' : '#f87171' }}>
+                        · {up ? '▲' : '▼'} {up ? '+' : ''}{chg.toFixed(2)}%
+                      </span>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
           </div>
 
           {/* Right Side: Vision/Mission — 45% */}
