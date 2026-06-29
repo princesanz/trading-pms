@@ -10,7 +10,7 @@
 export const config = { runtime: 'edge' };
 
 // Friendly symbol -> actual Yahoo Finance symbol. Anything not listed is
-// passed through unchanged.
+// passed through unchanged (this supports US tickers like AAPL and IDX tickers like BBCA.JK).
 const YAHOO_SYMBOL: Record<string, string> = {
   XAUUSD: 'XAUUSD=X',
   DXY: 'DX-Y.NYB',

@@ -4,19 +4,33 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Briefcase, DollarSign, TrendingUp, TrendingDown, Wallet, Landmark, Banknote } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { sahamDeskSummary } from '../../lib/deskAggregates';
+import { useSahamPrices } from './StockPortfolio';
 
 export function EquitiesDashboard() {
   const { holdings, dividends, cashFlows, loading } = useEquitiesData();
 
   const activeHoldings = useMemo(() => holdings.filter(h => h.total_lot > 0), [holdings]);
+  const livePrices = useSahamPrices(activeHoldings);
 
   const stats = useMemo(() => {
-    const totalPortfolioValue = activeHoldings.reduce((sum, h) => sum + h.total_cost_basis, 0);
+    let totalPortfolioValue = 0;
+    activeHoldings.forEach(h => {
+      const lp = livePrices[h.emiten]?.price;
+      if (lp && lp > 0) {
+        totalPortfolioValue += h.total_lot * 100 * lp;
+      } else {
+        totalPortfolioValue += h.total_cost_basis;
+      }
+    });
+
     const totalDividends = dividends.reduce((sum, d) => sum + (d.net_dividend || 0), 0);
 
     // Equity / P&L / Modal Awal via the shared desk-summary helper (native IDR) —
     // the SAME one the Overview uses, so the two can never drift.
     const desk = sahamDeskSummary(cashFlows, holdings);
+    
+    const liveEquity = desk.funding + desk.trading + totalPortfolioValue;
+    const livePnl = liveEquity - desk.modalAwal;
 
     return {
       totalPortfolioValue,
@@ -25,9 +39,9 @@ export function EquitiesDashboard() {
       funding: desk.funding,
       trading: desk.trading,
       modalAwal: desk.modalAwal,
-      totalPnl: desk.pnl,
+      totalPnl: livePnl,
     };
-  }, [activeHoldings, holdings, dividends, cashFlows]);
+  }, [activeHoldings, holdings, dividends, cashFlows, livePrices]);
 
   const topHoldingsData = useMemo(() =>
     activeHoldings
@@ -59,7 +73,7 @@ export function EquitiesDashboard() {
         <StatCard title="Modal Awal" value={`Rp${stats.modalAwal.toLocaleString()}`} subtitle="Net capital in/out" icon={<Banknote className="text-purple-500" />} />
         <StatCard title="Funding Account" value={`Rp${stats.funding.toLocaleString()}`} subtitle="External deposits" icon={<Landmark className="text-purple-500" />} />
         <StatCard title="Trading Account" value={`Rp${stats.trading.toLocaleString()}`} subtitle="Available to trade" icon={<Wallet className="text-purple-500" />} />
-        <StatCard title="Portfolio Value" value={`Rp${stats.totalPortfolioValue.toLocaleString()}`} subtitle="Cost basis" icon={<Briefcase className="text-amber-500" />} />
+        <StatCard title="Portfolio Value" value={`Rp${stats.totalPortfolioValue.toLocaleString()}`} subtitle="Live value" icon={<Briefcase className="text-amber-500" />} />
         <StatCard title="Total P&L" value={`${stats.totalPnl >= 0 ? '+' : '-'}Rp${Math.abs(stats.totalPnl).toLocaleString()}`} subtitle="Equity − Modal Awal" valueClass={stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} icon={stats.totalPnl >= 0 ? <TrendingUp className="text-emerald-500" /> : <TrendingDown className="text-rose-500" />} />
         <StatCard title="Total Dividends" value={`Rp${stats.totalDividends.toLocaleString()}`} subtitle={`${dividends.length} entries`} icon={<DollarSign className="text-emerald-500" />} />
         <StatCard title="Active Holdings" value={stats.numHoldings.toString()} icon={<TrendingUp className="text-blue-500" />} />

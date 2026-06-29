@@ -1,13 +1,59 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useEquitiesData } from '../../hooks/useEquitiesData';
 import { cn } from '../../lib/utils';
 import { Briefcase } from 'lucide-react';
+import type { StockHolding } from '../../types';
+
+export function useSahamPrices(activeHoldings: StockHolding[]) {
+  const [fetchedPrices, setFetchedPrices] = useState<Record<string, { price: number, changePercent: number | null }>>({});
+
+  useEffect(() => {
+    if (activeHoldings.length === 0) return;
+
+    const fetchPrices = async () => {
+      const symbols = activeHoldings.map(h => {
+        if (h.emiten.includes('.')) return h.emiten;
+        if (h.emiten.length === 4 && !['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOG', 'META', 'NVDA', 'AMD', 'INTC', 'NFLX'].includes(h.emiten)) {
+          return `${h.emiten}.JK`;
+        }
+        return h.emiten;
+      });
+
+      const uniqueSymbols = Array.from(new Set(symbols));
+      if (uniqueSymbols.length === 0) return;
+
+      try {
+        const res = await fetch(`/api/market-proxy?symbols=${uniqueSymbols.join(',')}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        const newPrices: Record<string, { price: number, changePercent: number | null }> = {};
+        data.forEach((q: any) => {
+          if (q.price != null) {
+            const emiten = q.symbol.replace('.JK', '');
+            newPrices[emiten] = { price: q.price, changePercent: q.changePercent };
+          }
+        });
+        setFetchedPrices(prev => ({ ...prev, ...newPrices }));
+      } catch (err) {
+        console.error('Failed to fetch saham prices', err);
+      }
+    };
+
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 60000);
+    return () => clearInterval(interval);
+  }, [activeHoldings]);
+
+  return fetchedPrices;
+}
 
 export function StockPortfolio() {
   const { holdings } = useEquitiesData();
   const [currentPrices, setCurrentPrices] = useState<Record<string, string>>({});
 
   const activeHoldings = useMemo(() => holdings.filter(h => h.total_lot > 0), [holdings]);
+  const fetchedPrices = useSahamPrices(activeHoldings);
 
   const totals = useMemo(() => {
     let totalCost = 0;
@@ -16,7 +62,10 @@ export function StockPortfolio() {
 
     activeHoldings.forEach(h => {
       totalCost += h.total_cost_basis;
-      const cp = parseFloat(currentPrices[h.emiten] || '');
+      const manual = currentPrices[h.emiten];
+      const hasOverride = manual !== undefined && manual !== '';
+      const cp = hasOverride ? parseFloat(manual) : (fetchedPrices[h.emiten]?.price || NaN);
+      
       if (!isNaN(cp) && cp > 0) {
         totalCurrentValue += h.total_lot * 100 * cp;
       } else {
@@ -29,7 +78,7 @@ export function StockPortfolio() {
       totalCurrentValue: allPriced && activeHoldings.length > 0 ? totalCurrentValue : null,
       totalPnl: allPriced && activeHoldings.length > 0 ? totalCurrentValue - totalCost : null,
     };
-  }, [activeHoldings, currentPrices]);
+  }, [activeHoldings, currentPrices, fetchedPrices]);
 
   return (
     <div className="space-y-6">
@@ -58,7 +107,11 @@ export function StockPortfolio() {
           </thead>
           <tbody>
             {activeHoldings.map(h => {
-              const cp = parseFloat(currentPrices[h.emiten] || '');
+              const fetched = fetchedPrices[h.emiten];
+              const manual = currentPrices[h.emiten];
+              const hasOverride = manual !== undefined && manual !== '';
+              const cp = hasOverride ? parseFloat(manual) : (fetched?.price || NaN);
+              
               const hasCp = !isNaN(cp) && cp > 0;
               const currentValue = hasCp ? h.total_lot * 100 * cp : null;
               const floatingPnl = currentValue !== null ? currentValue - h.total_cost_basis : null;
@@ -72,14 +125,31 @@ export function StockPortfolio() {
                   <td className="px-4 py-3 text-slate-300">Rp{h.average_price.toLocaleString()}</td>
                   <td className="px-4 py-3 text-slate-300">Rp{h.total_cost_basis.toLocaleString()}</td>
                   <td className="px-4 py-3">
-                    <input
-                      type="number"
-                      step="1"
-                      placeholder="Enter price"
-                      value={currentPrices[h.emiten] || ''}
-                      onChange={(e) => setCurrentPrices(prev => ({ ...prev, [h.emiten]: e.target.value }))}
-                      className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-amber-500"
-                    />
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="1"
+                          placeholder={fetched?.price ? String(fetched.price) : "Enter price"}
+                          value={currentPrices[h.emiten] || ''}
+                          onChange={(e) => setCurrentPrices(prev => ({ ...prev, [h.emiten]: e.target.value }))}
+                          className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        {hasOverride ? (
+                          <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider bg-slate-800 px-1.5 py-0.5 rounded">Manual</span>
+                        ) : fetched ? (
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-500 uppercase tracking-wider bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Live
+                          </span>
+                        ) : null}
+                      </div>
+                      {!hasOverride && fetched?.changePercent != null && (
+                        <span className={cn("text-[11px] font-medium ml-1", fetched.changePercent >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                          {fetched.changePercent >= 0 ? '▲' : '▼'} {Math.abs(fetched.changePercent).toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-slate-300">
                     {currentValue !== null ? `Rp${currentValue.toLocaleString()}` : <span className="text-slate-500">—</span>}
