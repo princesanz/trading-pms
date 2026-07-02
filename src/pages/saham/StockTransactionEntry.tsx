@@ -13,6 +13,7 @@ import { calculateDeskBalances } from '../../lib/balanceCalc';
 const txSchema = z.object({
   tanggal: z.string().min(1, 'Date is required'),
   emiten: z.string().min(1, 'Ticker is required').transform(v => v.toUpperCase().trim()),
+  market: z.enum(['IDX', 'US', 'CRYPTO']),
   tipe: z.enum(['Buy', 'Sell']),
   lot: z.number().positive('Lot must be positive'),
   harga: z.number().positive('Price must be positive'),
@@ -33,6 +34,7 @@ export function StockTransactionEntry() {
     resolver: zodResolver(txSchema),
     defaultValues: {
       tanggal: new Date().toISOString().split('T')[0],
+      market: 'IDX' as const,
       tipe: 'Buy',
       komisi: 0,
     }
@@ -81,6 +83,7 @@ export function StockTransactionEntry() {
       const { error } = await supabase.from('stock_transactions').insert({
         tanggal: data.tanggal,
         emiten: data.emiten,
+        market: data.market,
         tipe: data.tipe,
         lot: data.lot,
         harga: data.harga,
@@ -172,6 +175,14 @@ export function StockTransactionEntry() {
             <input type="text" placeholder="e.g. BBRI" {...register('emiten')} onChange={(e) => setValue('emiten', e.target.value.toUpperCase())} list="emitens" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none uppercase" />
             <datalist id="emitens">{existingEmitens.map(e => <option key={e} value={e} />)}</datalist>
             {errors.emiten && <span className="text-xs text-red-500">{errors.emiten.message}</span>}
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300">Market</label>
+            <select {...register('market')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none">
+              <option value="IDX">🇮🇩 IDX (Indonesia)</option>
+              <option value="US">🇺🇸 US (NYSE/NASDAQ)</option>
+              <option value="CRYPTO">₿ Crypto</option>
+            </select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-300">Type</label>

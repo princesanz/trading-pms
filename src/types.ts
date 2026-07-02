@@ -165,12 +165,14 @@ export type CryptoFuturesTrade = {
 // --- Equities Types ---
 
 export type StockTipe = 'Buy' | 'Sell';
+export type StockMarket = 'IDX' | 'US' | 'CRYPTO';
 
 export type StockTransaction = {
   id: string;
   tanggal: string;
   emiten: string;
   tipe: StockTipe;
+  market: StockMarket;
   lot: number;
   harga: number;
   komisi: number;
@@ -184,6 +186,7 @@ export type StockTransaction = {
 export type StockHolding = {
   id: string;
   emiten: string;
+  market: StockMarket;
   total_lot: number;
   average_price: number;
   total_cost_basis: number;

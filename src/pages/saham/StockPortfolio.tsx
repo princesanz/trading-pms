@@ -11,15 +11,26 @@ export function useSahamPrices(activeHoldings: StockHolding[]) {
     if (activeHoldings.length === 0) return;
 
     const fetchPrices = async () => {
-      const symbols = activeHoldings.map(h => {
-        if (h.emiten.includes('.')) return h.emiten;
-        if (h.emiten.length === 4 && !['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOG', 'META', 'NVDA', 'AMD', 'INTC', 'NFLX'].includes(h.emiten)) {
-          return `${h.emiten}.JK`;
+      // Build a map of Yahoo symbol → original emiten key
+      const symbolToEmiten = new Map<string, string>();
+      activeHoldings.forEach(h => {
+        let yahooSymbol: string;
+        switch (h.market ?? 'IDX') {
+          case 'IDX':
+            yahooSymbol = h.emiten.includes('.') ? h.emiten : `${h.emiten}.JK`;
+            break;
+          case 'CRYPTO':
+            yahooSymbol = h.emiten.includes('-') ? h.emiten : `${h.emiten}-USD`;
+            break;
+          case 'US':
+          default:
+            yahooSymbol = h.emiten;
+            break;
         }
-        return h.emiten;
+        symbolToEmiten.set(yahooSymbol, h.emiten);
       });
 
-      const uniqueSymbols = Array.from(new Set(symbols));
+      const uniqueSymbols = Array.from(symbolToEmiten.keys());
       if (uniqueSymbols.length === 0) return;
 
       try {
@@ -30,7 +41,7 @@ export function useSahamPrices(activeHoldings: StockHolding[]) {
         const newPrices: Record<string, { price: number, changePercent: number | null }> = {};
         data.forEach((q: any) => {
           if (q.price != null) {
-            const emiten = q.symbol.replace('.JK', '');
+            const emiten = symbolToEmiten.get(q.symbol) ?? q.symbol;
             newPrices[emiten] = { price: q.price, changePercent: q.changePercent };
           }
         });
