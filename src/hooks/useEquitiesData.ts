@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthProvider';
 import type { StockTransaction, StockHolding, Dividend, CashFlow, AnalysisTag } from '../types';
 
 export function useEquitiesData() {
+  const { session, loading: authLoading } = useAuth();
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [holdings, setHoldings] = useState<StockHolding[]>([]);
   const [dividends, setDividends] = useState<Dividend[]>([]);
@@ -37,8 +39,9 @@ export function useEquitiesData() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     fetchData();
-  }, []);
+  }, [authLoading, session]);
 
-  return { transactions, holdings, dividends, cashFlows, analysisTags, loading, refetch: fetchData };
+  return { transactions, holdings, dividends, cashFlows, analysisTags, loading: loading || authLoading, refetch: fetchData };
 }

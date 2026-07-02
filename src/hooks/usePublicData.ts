@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthProvider';
 
 /**
  * Public read path — reads ONLY the curated `public_*` views (anon-granted),
@@ -18,6 +19,7 @@ export type SpotSale = { coin: string; jumlah_koin_sold: number; harga_beli_rata
 export type StockSell = { ticker: string; tipe: string; quantity_lots: number; quantity_shares: number; harga: number; tanggal: string };
 
 export function usePublicData() {
+  const { session, loading: authLoading } = useAuth();
   const [aggregates, setAggregates] = useState<DeskAggregate[]>([]);
   const [forexOpen, setForexOpen] = useState<ForexOpen[]>([]);
   const [cryptoFuturesOpen, setCryptoFuturesOpen] = useState<CryptoFuturesOpen[]>([]);
@@ -61,10 +63,13 @@ export function usePublicData() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    if (authLoading) return;
+    fetchData();
+  }, [authLoading, session]);
 
   return {
     aggregates, forexOpen, cryptoFuturesOpen, spotHoldings, stockHoldings,
-    forexClosed, cryptoFuturesClosed, spotSales, stockSells, loading, refetch: fetchData,
+    forexClosed, cryptoFuturesClosed, spotSales, stockSells, loading: loading || authLoading, refetch: fetchData,
   };
 }
