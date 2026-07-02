@@ -93,7 +93,7 @@ export function TradeEntry() {
       ? (Math.abs(data.tp - data.harga_entry) / Math.abs(data.harga_entry - data.sl)).toFixed(2)
       : null;
 
-    const { error } = await supabase.from('trades').insert({
+    const insertResponse = await supabase.from('trades').insert({
       tanggal: data.tanggal,
       instrumen: data.instrumen,
       posisi: data.posisi,
@@ -109,13 +109,16 @@ export function TradeEntry() {
       risk_to_reward: riskToReward ? `1:${riskToReward}` : null,
       status: 'Open',
       // net_pnl, persen_profit_loss, and saldo_akun stay null until trade is closed.
-    });
+    }).select();
+
+    console.log('[TradeEntry] insert response:', insertResponse);
 
     setIsSubmitting(false);
 
-    if (error) {
-      alert(`Error: ${error.message}`);
+    if (insertResponse.error) {
+      alert(`Error: ${insertResponse.error.message}`);
     } else {
+      console.log('[TradeEntry] Insert successful, navigating to /journal (NO refetch called)');
       navigate('/journal');
     }
   };

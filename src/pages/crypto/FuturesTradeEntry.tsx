@@ -84,7 +84,7 @@ export function FuturesTradeEntry() {
   const onSubmit = async (data: FuturesFormValues) => {
     if (balanceError) return;
     setIsSubmitting(true);
-    const { error } = await supabase.from('crypto_futures_trades').insert({
+    const insertResponse = await supabase.from('crypto_futures_trades').insert({
       tanggal: data.tanggal,
       coin: data.coin,
       posisi: data.posisi,
@@ -100,10 +100,16 @@ export function FuturesTradeEntry() {
       psikologi: data.psikologi || null,
       catatan: data.catatan,
       status: 'Open',
-    });
+    }).select();
+
+    console.log('[FuturesTradeEntry] insert response:', insertResponse);
+
     setIsSubmitting(false);
-    if (error) { alert(`Error: ${error.message}`); }
-    else { navigate('/crypto/futures/journal'); }
+    if (insertResponse.error) { alert(`Error: ${insertResponse.error.message}`); }
+    else { 
+      console.log('[FuturesTradeEntry] Insert successful, navigating to /crypto/futures/journal (NO refetch called)');
+      navigate('/crypto/futures/journal'); 
+    }
   };
 
   return (

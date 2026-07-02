@@ -80,7 +80,7 @@ export function StockTransactionEntry() {
     setIsSubmitting(true);
     try {
       // 1. Insert transaction
-      const { error } = await supabase.from('stock_transactions').insert({
+      const txResponse = await supabase.from('stock_transactions').insert({
         tanggal: data.tanggal,
         emiten: data.emiten,
         market: data.market,
@@ -90,8 +90,10 @@ export function StockTransactionEntry() {
         komisi: data.komisi || 0,
         analysis_tag: data.analysis_tag || null,
         catatan: data.catatan || null,
-      });
-      if (error) throw error;
+      }).select();
+      
+      console.log('[StockTransactionEntry] tx insert response:', txResponse);
+      if (txResponse.error) throw txResponse.error;
 
       // 2. Record the linked cash flow (source of truth)
       const totalShares = data.lot * 100;
@@ -132,6 +134,7 @@ export function StockTransactionEntry() {
       // how to recompute, and re-running self-heals.
       await recalculateHolding(data.emiten);
 
+      console.log('[StockTransactionEntry] Inserts successful, navigating to /saham/history (NO refetch called)');
       navigate('/saham/history');
     } catch (e: any) {
       alert(`Error: ${e.message}`);
