@@ -6,9 +6,22 @@ Vault path: `C:\Users\SANZ\OneDrive\Dokumen\sanz-brain`
 
 ## Session startup (mandatory)
 
-1. Read `memory/INDEX.md` from sanz-brain via MCP — every session, no exceptions
-2. Read `inbox/claude-inbox.md` for pending tasks from other agents
-3. Read this project's code context as needed
+1. Always read `memory/INDEX.md` from sanz-brain first — every session, no exceptions
+2. Check `inbox/claude-inbox.md` for pending tasks from other agents
+3. AUTO-RUN market snapshot:
+   - Run: `cd "C:\Users\SANZ\OneDrive\Dokumen\sanz-brain" && bash projects/sanz-capital/research/fetch-market-snapshot.sh`
+   - Read the generated snapshot from `projects/sanz-capital/analysis/`
+   - Report current prices to Sanz at session start
+   - Only skip if Sanz explicitly says "no snapshot" or "skip market"
+4. Only open full vault files (MEMORY.md, USER.md) if task requires deep context; read this project's code context as needed
+
+## Market analysis protocol
+
+After snapshot is loaded:
+- Flag any XAUUSD move >0.5% from previous session
+- Note BTC dominance direction if crypto prices available
+- Check USD/IDR for IDX session relevance (threshold: >100 pip move)
+- Append snapshot summary to `inbox/claude-inbox.md` with tag [MARKET]
 
 ## Session end (mandatory)
 
