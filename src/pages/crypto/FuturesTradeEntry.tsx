@@ -102,13 +102,11 @@ export function FuturesTradeEntry() {
       status: 'Open',
     }).select();
 
-    console.log('[FuturesTradeEntry] insert response:', insertResponse);
-
     setIsSubmitting(false);
     if (insertResponse.error) { alert(`Error: ${insertResponse.error.message}`); }
-    else { 
-      console.log('[FuturesTradeEntry] Insert successful, navigating to /crypto/futures/journal (NO refetch called)');
-      navigate('/crypto/futures/journal'); 
+    else {
+      // The journal page re-fetches on mount, so navigating shows the new position.
+      navigate('/crypto/futures/journal');
     }
   };
 

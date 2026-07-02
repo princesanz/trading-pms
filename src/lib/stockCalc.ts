@@ -9,7 +9,7 @@ import { supabase } from './supabase';
  * On Sell: average_price unchanged, total_lot reduced.
  * If total_lot reaches 0: row kept with average_price = 0.
  */
-export async function recalculateHolding(emiten: string) {
+export async function recalculateHolding(emiten: string, market?: 'IDX' | 'US' | 'CRYPTO') {
   const { data: txs, error: txError } = await supabase
     .from('stock_transactions')
     .select('*')
@@ -46,6 +46,11 @@ export async function recalculateHolding(emiten: string) {
 
   const totalCostBasis = totalLot * 100 * averagePrice;
 
+  // Market for the holding: explicit param wins, else derive from the latest
+  // transaction. Without this, new holdings fell back to the DB default 'IDX'
+  // even for US/CRYPTO tickers.
+  const resolvedMarket = market ?? (txs.length > 0 ? txs[txs.length - 1].market : undefined);
+
   // Upsert: insert if new emiten, update if existing.
   // maybeSingle() so "no existing row yet" returns null instead of erroring.
   const { data: existing, error: existingError } = await supabase
@@ -66,6 +71,7 @@ export async function recalculateHolding(emiten: string) {
       total_lot: totalLot,
       average_price: averagePrice,
       total_cost_basis: totalCostBasis,
+      ...(resolvedMarket ? { market: resolvedMarket } : {}),
       updated_at: new Date().toISOString(),
     }).eq('id', existing.id);
     if (updateError) throw new Error(`Failed to update the holding for ${emiten}. ${outOfSyncMsg} (${updateError.message})`);
@@ -75,6 +81,7 @@ export async function recalculateHolding(emiten: string) {
       total_lot: totalLot,
       average_price: averagePrice,
       total_cost_basis: totalCostBasis,
+      ...(resolvedMarket ? { market: resolvedMarket } : {}),
     });
     if (insertError) throw new Error(`Failed to create the holding for ${emiten}. ${outOfSyncMsg} (${insertError.message})`);
   }

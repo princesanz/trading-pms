@@ -9,7 +9,7 @@ import { useAuth } from '../../contexts/AuthProvider';
 import { getCurrencyForDesk } from '../../types';
 
 export function StockHistory() {
-  const { transactions, loading, refetch } = useEquitiesData();
+  const { transactions, loading, error: fetchError, refetch } = useEquitiesData();
   const { isAdmin } = useAuth();
   const [filterEmiten, setFilterEmiten] = useState('');
   const [filterTipe, setFilterTipe] = useState<'' | 'Buy' | 'Sell'>('');
@@ -76,6 +76,12 @@ export function StockHistory() {
 
   return (
     <div className="space-y-6">
+      {fetchError && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm">
+          Failed to load transaction data: {fetchError} — the list below may be stale.{' '}
+          <button onClick={() => refetch()} className="underline hover:text-rose-300">Retry</button>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Transaction History</h2>

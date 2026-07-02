@@ -8,6 +8,7 @@ import { useForexPrices } from '../contexts/ForexPriceProvider';
 import { forexUnrealized, isForexLiveSymbol } from '../lib/forexLivePnl';
 import { PriceStatusBadge } from '../components/PriceStatusBadge';
 import { useAuth } from '../contexts/AuthProvider';
+import { normalizeCashFlowTipe } from '../lib/balanceCalc';
 
 /**
  * Recalculates saldo_akun, persen_profit_loss for ALL closed trades chronologically,
@@ -29,19 +30,21 @@ async function recalculateBalances(overridePnl?: { tradeId: string; pnlValue: nu
     .eq('desk', 'Forex')
     .order('tanggal', { ascending: true });
 
+  // maybeSingle: a missing settings row (fresh migrated DB) must not hard-fail
+  // the whole close/delete — we fall back to modal_awal = 0.
   const { data: settings, error: settingsError } = await supabase
     .from('account_settings')
     .select('*')
     .limit(1)
-    .single();
+    .maybeSingle();
 
   const readError = tradesError || cashFlowsError || settingsError;
   if (readError) {
     throw new Error(`Could not load data to recalculate account balances. Balances were not updated — refresh the Journal and try again. (${readError.message})`);
   }
-  if (!allTrades || !settings) return;
+  if (!allTrades) return;
 
-  let currentBalance: number = settings.modal_awal;
+  let currentBalance: number = Number(settings?.modal_awal ?? 0);
 
   // Merge trades and cash flows into a single chronological event stream
   type Event = { type: 'trade'; date: number; createdAt: string; data: typeof allTrades[0] }
@@ -69,9 +72,10 @@ async function recalculateBalances(overridePnl?: { tradeId: string; pnlValue: nu
   for (const ev of events) {
     if (ev.type === 'cashflow') {
       const cf = ev.data;
-      if (cf.tipe === 'Deposit' || cf.tipe === 'Transfer Masuk') {
+      const tipe = normalizeCashFlowTipe(cf);
+      if (tipe === 'Deposit' || tipe === 'Transfer Masuk') {
         currentBalance += Number(cf.jumlah);
-      } else if (cf.tipe === 'Withdraw' || cf.tipe === 'Transfer Keluar') {
+      } else if (tipe === 'Withdraw' || tipe === 'Transfer Keluar') {
         currentBalance -= Number(cf.jumlah);
       }
     } else if (ev.type === 'trade') {
@@ -120,7 +124,7 @@ async function recalculateBalances(overridePnl?: { tradeId: string; pnlValue: nu
 }
 
 export function TradeHistory() {
-  const { trades, loading, refetch } = usePortfolioData();
+  const { trades, loading, error: fetchError, refetch } = usePortfolioData();
   const { prices, status, lastUpdated, refresh } = useForexPrices();
   const { isAdmin } = useAuth();
   const [filterInstrument, setFilterInstrument] = useState('');
@@ -219,6 +223,12 @@ export function TradeHistory() {
 
   return (
     <div className="space-y-6">
+      {fetchError && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm">
+          Failed to load journal data: {fetchError} — the list below may be stale.{' '}
+          <button onClick={() => refetch()} className="underline hover:text-rose-300">Retry</button>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h2 className="text-2xl font-bold tracking-tight">Trade Journal</h2>
         

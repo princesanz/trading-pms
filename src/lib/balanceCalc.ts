@@ -1,4 +1,36 @@
-import type { CashFlow } from '../types';
+import type { CashFlow, CashFlowType } from '../types';
+
+/**
+ * Normalizes legacy cash_flow_type enum values carried over from the old
+ * Supabase DB into the canonical four the app uses. The migrated DB's enum
+ * contains BOTH generations: 'Deposit', 'Withdraw', 'Transfer Masuk',
+ * 'Transfer Keluar' (current) plus 'Withdrawal' and 'Transfer' (legacy).
+ *
+ *   'Withdrawal' → 'Withdraw'      (pure rename)
+ *   'Transfer'   → 'Transfer Keluar' when desk_tujuan is set (old cross-desk
+ *                  outgoing leg); otherwise null (direction unknowable — the
+ *                  row is skipped rather than silently mis-signed).
+ *
+ * Every balance computation MUST go through this, otherwise legacy rows fall
+ * through all branches and balances drift (e.g. Funding going negative when
+ * sweep-out rows are counted but their legacy inflows are not).
+ */
+export function normalizeCashFlowTipe(cf: Pick<CashFlow, 'tipe' | 'desk_tujuan'>): CashFlowType | null {
+  const tipe = cf.tipe as string;
+  switch (tipe) {
+    case 'Deposit':
+    case 'Withdraw':
+    case 'Transfer Masuk':
+    case 'Transfer Keluar':
+      return tipe;
+    case 'Withdrawal':
+      return 'Withdraw';
+    case 'Transfer':
+      return cf.desk_tujuan ? 'Transfer Keluar' : null;
+    default:
+      return null;
+  }
+}
 
 /**
  * Calculates the balance of a specific account (Funding or Trading)
@@ -15,9 +47,10 @@ export function calculateAccountBalance(
   let balance = 0;
   cashFlows.forEach(cf => {
     if (cf.desk !== desk || cf.account_type !== accountType) return;
-    if (cf.tipe === 'Deposit' || cf.tipe === 'Transfer Masuk') {
+    const tipe = normalizeCashFlowTipe(cf);
+    if (tipe === 'Deposit' || tipe === 'Transfer Masuk') {
       balance += Number(cf.jumlah);
-    } else if (cf.tipe === 'Withdraw' || cf.tipe === 'Transfer Keluar') {
+    } else if (tipe === 'Withdraw' || tipe === 'Transfer Keluar') {
       balance -= Number(cf.jumlah);
     }
   });
@@ -62,16 +95,17 @@ export function calculateNetCapital(cashFlows: CashFlow[], desk: string): number
   return cashFlows.reduce((sum, cf) => {
     if (cf.desk !== desk) return sum;
     const amt = Number(cf.jumlah);
+    const tipe = normalizeCashFlowTipe(cf);
 
     // External capital in/out.
     if (!cf.is_reversal && !cf.is_trading_proceeds) {
-      if (cf.tipe === 'Deposit') return sum + amt;
-      if (cf.tipe === 'Withdraw') return sum - amt;
+      if (tipe === 'Deposit') return sum + amt;
+      if (tipe === 'Withdraw') return sum - amt;
     }
     // Cross-desk transfers (desk_tujuan set); internal Funding↔Trading legs are NULL → ignored.
     if (cf.desk_tujuan) {
-      if (cf.tipe === 'Transfer Keluar') return sum - amt;
-      if (cf.tipe === 'Transfer Masuk') return sum + amt;
+      if (tipe === 'Transfer Keluar') return sum - amt;
+      if (tipe === 'Transfer Masuk') return sum + amt;
     }
     return sum;
   }, 0);

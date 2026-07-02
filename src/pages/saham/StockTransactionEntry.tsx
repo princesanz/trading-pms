@@ -91,8 +91,6 @@ export function StockTransactionEntry() {
         analysis_tag: data.analysis_tag || null,
         catatan: data.catatan || null,
       }).select();
-      
-      console.log('[StockTransactionEntry] tx insert response:', txResponse);
       if (txResponse.error) throw txResponse.error;
 
       // 2. Record the linked cash flow (source of truth)
@@ -132,9 +130,9 @@ export function StockTransactionEntry() {
       // transactions (idempotent), so if it throws, the transaction and cash flow are
       // already saved and only the holdings summary is stale — the thrown message explains
       // how to recompute, and re-running self-heals.
-      await recalculateHolding(data.emiten);
+      await recalculateHolding(data.emiten, data.market);
 
-      console.log('[StockTransactionEntry] Inserts successful, navigating to /saham/history (NO refetch called)');
+      // The history page re-fetches on mount, so navigating shows the new transaction.
       navigate('/saham/history');
     } catch (e: any) {
       alert(`Error: ${e.message}`);

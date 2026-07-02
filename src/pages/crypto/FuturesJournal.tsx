@@ -8,6 +8,7 @@ import { useCryptoPrices } from '../../contexts/CryptoPriceProvider';
 import { resolvePrice, futuresUnrealized } from '../../lib/cryptoLivePnl';
 import { PriceStatusBadge } from '../../components/PriceStatusBadge';
 import { useAuth } from '../../contexts/AuthProvider';
+import { normalizeCashFlowTipe } from '../../lib/balanceCalc';
 
 async function recalculateCryptoBalances(overridePnl?: { tradeId: string; pnlValue: number }) {
   const { data: allTrades, error: tradesError } = await supabase
@@ -22,19 +23,21 @@ async function recalculateCryptoBalances(overridePnl?: { tradeId: string; pnlVal
     .eq('desk', 'Crypto')
     .order('tanggal', { ascending: true });
 
+  // maybeSingle: a missing settings row (fresh migrated DB) must not hard-fail
+  // the whole close/delete — we fall back to modal_awal_crypto = 0.
   const { data: settings, error: settingsError } = await supabase
     .from('account_settings')
     .select('*')
     .limit(1)
-    .single();
+    .maybeSingle();
 
   const readError = tradesError || cashFlowsError || settingsError;
   if (readError) {
     throw new Error(`Could not load data to recalculate Crypto account balances. Balances were not updated — refresh the Journal and try again. (${readError.message})`);
   }
-  if (!allTrades || !settings) return;
+  if (!allTrades) return;
 
-  let currentBalance: number = settings.modal_awal_crypto || 0;
+  let currentBalance: number = Number(settings?.modal_awal_crypto ?? 0);
 
   type Event = { type: 'trade'; date: number; createdAt: string; data: typeof allTrades[0] }
              | { type: 'cashflow'; date: number; createdAt: string; data: NonNullable<typeof cashFlows>[0] };
@@ -49,8 +52,9 @@ async function recalculateCryptoBalances(overridePnl?: { tradeId: string; pnlVal
   for (const ev of events) {
     if (ev.type === 'cashflow') {
       const cf = ev.data;
-      if (cf.tipe === 'Deposit' || cf.tipe === 'Transfer Masuk') currentBalance += Number(cf.jumlah);
-      else if (cf.tipe === 'Withdraw' || cf.tipe === 'Transfer Keluar') currentBalance -= Number(cf.jumlah);
+      const tipe = normalizeCashFlowTipe(cf);
+      if (tipe === 'Deposit' || tipe === 'Transfer Masuk') currentBalance += Number(cf.jumlah);
+      else if (tipe === 'Withdraw' || tipe === 'Transfer Keluar') currentBalance -= Number(cf.jumlah);
     } else {
       const t = ev.data;
       let pnl: number | null = t.net_pnl;
@@ -83,7 +87,7 @@ async function recalculateCryptoBalances(overridePnl?: { tradeId: string; pnlVal
 }
 
 export function FuturesJournal() {
-  const { futuresTrades, loading, refetch } = useCryptoData();
+  const { futuresTrades, loading, error: fetchError, refetch } = useCryptoData();
   const { prices, status, lastUpdated, refresh } = useCryptoPrices();
   const { isAdmin } = useAuth();
   const [filterCoin, setFilterCoin] = useState('');
@@ -154,6 +158,12 @@ export function FuturesJournal() {
 
   return (
     <div className="space-y-6">
+      {fetchError && (
+        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm">
+          Failed to load journal data: {fetchError} — the list below may be stale.{' '}
+          <button onClick={() => refetch()} className="underline hover:text-rose-300">Retry</button>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h2 className="text-2xl font-bold tracking-tight">Futures Journal</h2>
         <div className="flex items-center gap-3">

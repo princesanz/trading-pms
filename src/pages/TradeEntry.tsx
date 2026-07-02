@@ -111,14 +111,12 @@ export function TradeEntry() {
       // net_pnl, persen_profit_loss, and saldo_akun stay null until trade is closed.
     }).select();
 
-    console.log('[TradeEntry] insert response:', insertResponse);
-
     setIsSubmitting(false);
 
     if (insertResponse.error) {
       alert(`Error: ${insertResponse.error.message}`);
     } else {
-      console.log('[TradeEntry] Insert successful, navigating to /journal (NO refetch called)');
+      // The journal page re-fetches on mount, so navigating shows the new trade.
       navigate('/journal');
     }
   };

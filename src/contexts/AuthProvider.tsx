@@ -34,20 +34,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    console.log('[AuthProvider] mounted, calling getSession()');
     supabase.auth.getSession().then(({ data }) => {
-      console.log('[AuthProvider] getSession() resolved, active:', active, 'session:', !!data.session);
       if (!active) return;
       setSession(data.session);
       setLoading(false);
-      console.log('[AuthProvider] setLoading(false) called');
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
-      console.log('[AuthProvider] onAuthStateChange event:', _event, 'session:', !!s);
       setSession(s);
     });
     return () => {
-      console.log('[AuthProvider] unmounting');
       active = false;
       sub.subscription.unsubscribe();
     };

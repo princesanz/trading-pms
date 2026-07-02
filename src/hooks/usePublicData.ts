@@ -30,16 +30,12 @@ export function usePublicData() {
   const [spotSales, setSpotSales] = useState<SpotSale[]>([]);
   const [stockSells, setStockSells] = useState<StockSell[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
-    const [
-      { data: agg },
-      { data: fOpen }, { data: cOpen },
-      { data: spot }, { data: stock },
-      { data: fClosed }, { data: cClosed },
-      { data: sSales }, { data: sSells },
-    ] = await Promise.all([
+    setError(null);
+    const results = await Promise.all([
       supabase.from('public_desk_aggregates').select('*'),
       supabase.from('public_forex_open_positions').select('*').order('tanggal_buka', { ascending: false }),
       supabase.from('public_crypto_futures_open').select('*').order('tanggal_buka', { ascending: false }),
@@ -50,6 +46,19 @@ export function usePublicData() {
       supabase.from('public_crypto_spot_sales').select('*').order('tanggal', { ascending: false }),
       supabase.from('public_stock_transactions').select('*').order('tanggal', { ascending: false }),
     ]);
+
+    const firstError = results.find(r => r.error)?.error;
+    if (firstError) {
+      console.error('[usePublicData] fetch error:', firstError);
+      setError(firstError.message);
+    }
+    const [
+      { data: agg },
+      { data: fOpen }, { data: cOpen },
+      { data: spot }, { data: stock },
+      { data: fClosed }, { data: cClosed },
+      { data: sSales }, { data: sSells },
+    ] = results;
 
     if (agg) setAggregates(agg as DeskAggregate[]);
     if (fOpen) setForexOpen(fOpen as ForexOpen[]);
@@ -70,6 +79,6 @@ export function usePublicData() {
 
   return {
     aggregates, forexOpen, cryptoFuturesOpen, spotHoldings, stockHoldings,
-    forexClosed, cryptoFuturesClosed, spotSales, stockSells, loading: loading || authLoading, refetch: fetchData,
+    forexClosed, cryptoFuturesClosed, spotSales, stockSells, loading: loading || authLoading, error, refetch: fetchData,
   };
 }
