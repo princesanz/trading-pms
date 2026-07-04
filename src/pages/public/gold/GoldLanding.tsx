@@ -65,28 +65,29 @@ export function GoldLanding() {
     let run = 0;
     const series: CurvePoint[] = events.map(e => ({ date: e.date as string, value: (run += e.pnl) }));
 
-    // Track record — merge closed views, newest first.
+    // Track record — merge closed views, tagged by asset category, newest first.
+    // No global cap here: the section-03 component caps per filtered view.
     const rows: TrackRow[] = [
       ...pub.forexClosed.map((t): TrackRow => ({
         inst: t.instrument, desk: 'Forex, Commodities & Indices', side: t.direction === 'Sell' ? 'SHORT' : 'LONG',
         entry: fmtPrice(t.harga_entry), exit: t.harga_exit != null ? fmtPrice(t.harga_exit) : '—',
-        pnl: t.net_pnl ?? null, date: (t.tanggal_tutup ?? t.tanggal_buka) ?? '',
+        pnl: t.net_pnl ?? null, date: (t.tanggal_tutup ?? t.tanggal_buka) ?? '', category: 'forex',
       })),
       ...pub.cryptoFuturesClosed.map((t): TrackRow => ({
         inst: t.coin, desk: 'Crypto', side: t.direction === 'Short' ? 'SHORT' : 'LONG',
         entry: fmtPrice(t.harga_entry), exit: t.harga_exit != null ? fmtPrice(t.harga_exit) : '—',
-        pnl: t.realized_pnl ?? null, date: (t.tanggal_tutup ?? t.tanggal_buka) ?? '',
+        pnl: t.realized_pnl ?? null, date: (t.tanggal_tutup ?? t.tanggal_buka) ?? '', category: 'crypto',
       })),
       ...pub.spotSales.map((s): TrackRow => ({
         inst: s.coin, desk: 'Crypto', side: 'SELL',
         entry: fmtPrice(s.harga_beli_rata_at_sell), exit: fmtPrice(s.harga_jual),
-        pnl: s.realized_pnl ?? null, date: s.tanggal,
+        pnl: s.realized_pnl ?? null, date: s.tanggal, category: 'crypto',
       })),
       ...pub.stockSells.map((s): TrackRow => ({
         inst: s.ticker, desk: 'Stock Market', side: 'SELL',
-        entry: '—', exit: fmtPrice(s.harga), pnl: null, date: s.tanggal,
+        entry: '—', exit: fmtPrice(s.harga), pnl: null, date: s.tanggal, category: 'stock',
       })),
-    ].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 12);
+    ].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
     return { totalAum, returnPct, winRate, openCount, slices, series, rows };
   }, [pub, usdIdrRate]);

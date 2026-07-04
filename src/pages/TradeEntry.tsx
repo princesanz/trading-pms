@@ -12,6 +12,7 @@ import { calculateEffectiveTradingBalance } from '../lib/balanceCalc';
 const tradeSchema = z.object({
   tanggal: z.string().min(1, 'Date is required'),
   instrumen: z.string().min(1, 'Instrument is required'),
+  category: z.enum(['forex', 'crypto', 'stock']),
   posisi: z.enum(['Buy', 'Sell']),
   lot: z.number().min(0.01),
   leverage: z.number().min(1, 'Leverage must be at least 1'),
@@ -35,6 +36,7 @@ export function TradeEntry() {
     resolver: zodResolver(tradeSchema),
     defaultValues: {
       tanggal: new Date().toISOString().split('T')[0],
+      category: 'forex',
       posisi: 'Buy',
       leverage: 100,
       komisi_swap: 0,
@@ -96,6 +98,7 @@ export function TradeEntry() {
     const insertResponse = await supabase.from('trades').insert({
       tanggal: data.tanggal,
       instrumen: data.instrumen,
+      category: data.category,
       posisi: data.posisi,
       lot: data.lot,
       leverage: data.leverage,
@@ -188,6 +191,19 @@ export function TradeEntry() {
               </optgroup>
             </select>
             {errors.instrumen && <span className="text-xs text-red-500">{errors.instrumen.message}</span>}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-300">Category</label>
+            <select
+              {...register('category')}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+            >
+              <option value="forex">Forex</option>
+              <option value="crypto">Crypto</option>
+              <option value="stock">Stock</option>
+            </select>
+            {errors.category && <span className="text-xs text-red-500">{errors.category.message}</span>}
           </div>
 
           <div className="space-y-2">
