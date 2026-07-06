@@ -15,6 +15,7 @@ import { Overview } from './pages/Overview';
 import { Dashboard } from './pages/Dashboard';
 import { TradeEntry } from './pages/TradeEntry';
 import { TradeHistory } from './pages/TradeHistory';
+import { OpenPositions } from './pages/OpenPositions';
 import { CashFlow } from './pages/CashFlow';
 
 // Crypto Desk pages
@@ -91,6 +92,7 @@ export default function App() {
             {/* Forex desk — read views (live gold prices) */}
             <Route element={<ForexPriceLayout />}>
               <Route path="/forex" element={<Dashboard />} />
+              <Route path="/open-positions" element={<OpenPositions />} />
               <Route path="/journal" element={<TradeHistory />} />
             </Route>
 
