@@ -7,6 +7,7 @@ import { Check, X, Trash2, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthProvider';
 import { recalculateBalances } from '../lib/forexBalances';
 import { formatTradeId, formatUsd, formatPct, formatRr, formatNum, formatSession } from '../lib/tradeFormat';
+import { sortClosedDesc } from '../lib/sortTrades';
 
 export function TradeHistory() {
   const { trades, loading, error: fetchError, refetch } = usePortfolioData();
@@ -35,16 +36,13 @@ export function TradeHistory() {
     if (filterInstrument) {
       result = result.filter(t => t.instrumen === filterInstrument);
     }
-    // Sort by CLOSE date (tanggal_tutup) descending — newest closed trade first. Rows missing
-    // a close date fall back to the open date, then sink to the bottom, so sorting never crashes.
-    return result.slice().sort((a, b) => {
-      const av = a.tanggal_tutup || a.tanggal || '';
-      const bv = b.tanggal_tutup || b.tanggal || '';
-      if (!av && !bv) return 0;
-      if (!av) return 1;
-      if (!bv) return -1;
-      return bv.localeCompare(av);
-    });
+    // Shared comparator: close date DESC, tie-broken by trade_number DESC (see sortTrades.ts),
+    // so same-day trades order identically here and on the public Track Record.
+    return sortClosedDesc(result, t => ({
+      closeDate: t.tanggal_tutup || t.tanggal,
+      tradeNumber: t.trade_number,
+      fallbackTs: t.created_at,
+    }));
   }, [closedTrades, filterInstrument]);
 
   const totalPages = Math.max(1, Math.ceil(filteredTrades.length / PAGE_SIZE));

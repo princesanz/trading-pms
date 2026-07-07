@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useReveal } from './goldHooks';
+import { sortClosedDesc } from '../../../lib/sortTrades';
 
 export type TrackCategory = 'forex' | 'crypto' | 'stock';
 
@@ -67,19 +68,13 @@ export function TrackRecordGold({ rows, reduced }: { rows: TrackRow[]; reduced: 
 
   const switchTab = (key: TabKey) => { setTab(key); setPage(1); };
 
-  // Client-side: filter the once-fetched rows by category, then sort by CLOSE date
-  // (r.date is the exit/close date) DESCENDING — newest first. Rows missing a close
-  // date sink to the bottom so the sort never crashes.
+  // Client-side: filter the once-fetched rows by category, then sort with the SHARED comparator
+  // (close date DESC, tie-broken by trade_number DESC — see sortTrades.ts) so same-day trades
+  // order identically to the internal Journal. r.date is the exit/close date; r.id is trade_number.
   const filtered = useMemo(() => {
     const cat = TABS.find(t => t.key === tab)?.cat ?? null;
     const list = cat ? rows.filter(r => r.category === cat) : rows;
-    return list.slice().sort((a, b) => {
-      const av = a.date || '', bv = b.date || '';
-      if (!av && !bv) return 0;
-      if (!av) return 1;   // a missing → after b
-      if (!bv) return -1;  // b missing → after a
-      return bv.localeCompare(av); // descending
-    });
+    return sortClosedDesc(list, r => ({ closeDate: r.date, tradeNumber: r.id }));
   }, [rows, tab]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));

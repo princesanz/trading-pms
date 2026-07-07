@@ -8,6 +8,7 @@ import { AllocationGold, type AllocSlice } from './AllocationGold';
 import { EquityCurveGold, type CurvePoint } from './EquityCurveGold';
 import { TrackRecordGold, type TrackRow } from './TrackRecordGold';
 import { FooterGold } from './FooterGold';
+import { sortClosedDesc } from '../../../lib/sortTrades';
 
 /*
  * GoldLanding — the ONLY data-aware piece of the gold public design.
@@ -108,9 +109,13 @@ export function GoldLanding() {
         inst: s.ticker, desk: 'Stock Market', side: 'SELL',
         entry: '—', exit: fmtPrice(s.harga), pnl: null, date: s.tanggal, category: 'stock',
       })),
-    ].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    ];
+    // Deterministic ordering via the shared comparator (close date DESC, tie-broken by
+    // trade_number DESC). TrackRecordGold re-sorts per tab with the same helper, so both the
+    // merged list here and the displayed list stay consistent with the internal Journal.
+    const sortedRows = sortClosedDesc(rows, r => ({ closeDate: r.date, tradeNumber: r.id }));
 
-    return { totalAum, returnPct, winRate, openCount, slices, series, rows };
+    return { totalAum, returnPct, winRate, openCount, slices, series, rows: sortedRows };
   }, [pub, usdIdrRate]);
 
   const xau = prices.get('XAUUSD') ?? null;
