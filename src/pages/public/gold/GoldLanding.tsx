@@ -18,6 +18,11 @@ import { FooterGold } from './FooterGold';
 
 const fmtPrice = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: n < 100 ? 5 : 2 });
 
+// Bucket a stored (UTC) timestamp/date by the user's LOCAL (WIB) calendar day. Intl-based —
+// no hardcoded +7 offset. `en-CA` yields YYYY-MM-DD, which also sorts chronologically.
+const WIB_TZ = 'Asia/Jakarta';
+const wibDayKey = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-CA', { timeZone: WIB_TZ });
+
 export function GoldLanding() {
   const pub = usePublicData();
   const { usdIdrRate } = useFxRate();
@@ -56,14 +61,26 @@ export function GoldLanding() {
     const openCount =
       pub.forexOpen.length + pub.cryptoFuturesOpen.length + pub.spotHoldings.length + pub.stockHoldings.length;
 
-    // Cumulative realized P&L curve (USD) from closed positions.
+    // Cumulative realized P&L curve (USD) across ALL desks (Forex + Crypto + Saham) from closed
+    // positions. Aggregated to ONE point per WIB trading day = cumulative P&L as of the END of
+    // that day, so multiple positions closed on the same calendar day collapse to a single point
+    // (no per-trade spikes). Time-range filters downstream operate on this day-bucketed series.
     const events = [
       ...pub.forexClosed.map(t => ({ date: t.tanggal_tutup ?? t.tanggal_buka, pnl: t.net_pnl ?? 0 })),
       ...pub.cryptoFuturesClosed.map(t => ({ date: t.tanggal_tutup ?? t.tanggal_buka, pnl: t.realized_pnl ?? 0 })),
       ...pub.spotSales.map(s => ({ date: s.tanggal, pnl: s.realized_pnl ?? 0 })),
-    ].filter(e => !!e.date).sort((a, b) => a.date!.localeCompare(b.date!));
+    ].filter((e): e is { date: string; pnl: number } => !!e.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Accumulate chronologically; the LAST write per WIB day wins = end-of-day cumulative value.
     let run = 0;
-    const series: CurvePoint[] = events.map(e => ({ date: e.date as string, value: (run += e.pnl) }));
+    const byDay = new Map<string, number>();
+    for (const e of events) {
+      run += e.pnl;
+      byDay.set(wibDayKey(e.date), run);
+    }
+    const series: CurvePoint[] = Array.from(byDay, ([date, value]) => ({ date, value }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     // Track record — merge closed views, tagged by asset category, newest first.
     // No global cap here: the section-03 component caps per filtered view.
