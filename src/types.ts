@@ -100,6 +100,24 @@ export type Trade = {
   created_at: string;
   setup_tag?: SetupTag;
   psychology_tag?: PsychologyTag;
+  // --- Phase 4: Notion Trade Log parity fields ---
+  trade_number?: number;      // global sequence; displayed as TRD-{n}
+  point_value?: number;       // snapshot from instrument_specs at open
+  balance_at_open?: number;   // realized-only balance snapshot at open
+  open_ts?: string;           // UTC timestamptz captured at open
+  session?: string;           // classified trading session at open
+  risk_usd?: number;          // GENERATED: |entry-sl| * point_value * lot
+  risk_pct?: number;          // GENERATED: risk_usd / balance_at_open * 100
+  rr_planned?: number;        // GENERATED: |tp-entry| / |entry-sl|
+  rr_actual?: number;         // GENERATED: net_pnl / risk_usd (materializes at close)
+};
+
+/** Reference spec per instrument. point_value = USD value of a 1.0 price move per 1.0 lot. */
+export type InstrumentSpec = {
+  instrument: string;
+  point_value: number;
+  tick_size?: number;
+  contract_size?: number;
 };
 
 // --- Crypto Types ---

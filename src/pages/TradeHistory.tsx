@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 import { Check, X, Trash2, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthProvider';
 import { recalculateBalances } from '../lib/forexBalances';
+import { formatTradeId, formatUsd, formatPct, formatRr, formatNum, formatSession } from '../lib/tradeFormat';
 
 export function TradeHistory() {
   const { trades, loading, error: fetchError, refetch } = usePortfolioData();
@@ -144,14 +145,21 @@ export function TradeHistory() {
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
             <tr>
+              <th className="px-4 py-3">ID</th>
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Instrument</th>
               <th className="px-4 py-3">Pos</th>
               <th className="px-4 py-3">Entry</th>
               <th className="px-4 py-3">Exit</th>
               <th className="px-4 py-3">SL</th>
+              <th className="px-4 py-3">Session</th>
               <th className="px-4 py-3">Setup / Psych</th>
               <th className="px-4 py-3">Closed</th>
+              <th className="px-4 py-3 text-right">Pt Val</th>
+              <th className="px-4 py-3 text-right">Risk $</th>
+              <th className="px-4 py-3 text-right">Risk %</th>
+              <th className="px-4 py-3 text-right">R:R Plan</th>
+              <th className="px-4 py-3 text-right">R:R Act</th>
               <th className="px-4 py-3 text-right">Net PnL</th>
               <th className="px-4 py-3 text-right">Gain %</th>
               <th className="px-4 py-3 text-right">Actions</th>
@@ -160,6 +168,7 @@ export function TradeHistory() {
           <tbody>
             {filteredTrades.map((trade) => (
               <tr key={trade.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
+                <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">{formatTradeId(trade.trade_number)}</td>
                 <td className="px-4 py-3 text-slate-300">{format(parseISO(trade.tanggal), 'dd MMM yyyy')}</td>
                 <td className="px-4 py-3 font-medium text-slate-200">{trade.instrumen}</td>
                 <td className="px-4 py-3">
@@ -173,6 +182,7 @@ export function TradeHistory() {
                 <td className="px-4 py-3 text-slate-300">{trade.harga_entry}</td>
                 <td className="px-4 py-3 text-slate-300">{trade.harga_exit != null ? trade.harga_exit : <span className="text-slate-500">—</span>}</td>
                 <td className="px-4 py-3 text-slate-400">{trade.sl || '-'}</td>
+                <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">{formatSession(trade.session)}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-col gap-1">
                     <span className="text-xs text-blue-400">{trade.setup_tag?.name || '-'}</span>
@@ -181,6 +191,17 @@ export function TradeHistory() {
                 </td>
                 <td className="px-4 py-3 text-slate-400">
                   {trade.tanggal_tutup ? format(parseISO(trade.tanggal_tutup), 'dd MMM yyyy') : <span className="text-slate-500">—</span>}
+                </td>
+                <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatNum(trade.point_value)}</td>
+                <td className="px-4 py-3 text-right font-semibold text-slate-200 tabular-nums">{formatUsd(trade.risk_usd)}</td>
+                <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatPct(trade.risk_pct)}</td>
+                <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatRr(trade.rr_planned)}</td>
+                <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                  <span className={cn(
+                    trade.rr_actual == null ? "text-slate-500" : trade.rr_actual >= 0 ? "text-emerald-400" : "text-rose-400"
+                  )}>
+                    {formatRr(trade.rr_actual)}
+                  </span>
                 </td>
                 <td className="px-4 py-3 text-right">
                   {editingTradeId === trade.id ? (
@@ -265,7 +286,7 @@ export function TradeHistory() {
             ))}
             {filteredTrades.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-slate-500">No closed trades in the journal yet.</td>
+                <td colSpan={18} className="px-4 py-8 text-center text-slate-500">No closed trades in the journal yet.</td>
               </tr>
             )}
           </tbody>

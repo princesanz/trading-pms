@@ -125,6 +125,38 @@ export function sumClosedNetPnl(
 }
 
 /**
+ * Realized account balance (NOT equity) for a saldo_akun-replay desk, used to snapshot
+ * `balance_at_open` at trade-insert time:
+ *
+ *   = modal_awal (initial capital)
+ *   + Σ signed cash flows for this desk (Deposit / Transfer Masuk +, Withdraw / Transfer Keluar −)
+ *   + Σ realized net P&L of already-closed trades
+ *
+ * This intentionally sums ALL of the desk's cash flows (both Funding and Trading accounts),
+ * matching the running balance produced by recalculateBalances(). It excludes the floating
+ * P&L of other open trades — this is a balance, not equity. Addition is order-independent,
+ * so the result equals the "balance as of now" needed for a fresh open.
+ */
+export function calculateRealizedBalance(
+  modalAwal: number,
+  cashFlows: CashFlow[],
+  desk: string,
+  trades: { status: string; net_pnl?: number | null }[]
+): number {
+  let bal = Number(modalAwal) || 0;
+  cashFlows.forEach(cf => {
+    if (cf.desk !== desk) return;
+    const tipe = normalizeCashFlowTipe(cf);
+    if (tipe === 'Deposit' || tipe === 'Transfer Masuk') {
+      bal += Number(cf.jumlah);
+    } else if (tipe === 'Withdraw' || tipe === 'Transfer Keluar') {
+      bal -= Number(cf.jumlah);
+    }
+  });
+  return bal + sumClosedNetPnl(trades);
+}
+
+/**
  * Effective Trading Account balance for the saldo_akun-replay desks
  * (Forex, Crypto Futures), where trade P&L is NOT written to cash_flows
  * and lives only in trades.net_pnl.

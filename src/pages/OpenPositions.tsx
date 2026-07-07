@@ -5,14 +5,16 @@ import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 import { Check, X, DollarSign, Trash2, Pencil } from 'lucide-react';
 import { useForexPrices } from '../contexts/ForexPriceProvider';
+import { getContractSize } from '../types';
 import { forexUnrealized, isForexLiveSymbol } from '../lib/forexLivePnl';
 import { PriceStatusBadge } from '../components/PriceStatusBadge';
 import { useAuth } from '../contexts/AuthProvider';
 import { recalculateBalances } from '../lib/forexBalances';
+import { formatTradeId, formatUsd, formatPct, formatRr, formatNum, formatSession } from '../lib/tradeFormat';
 import type { Trade, TradePosition } from '../types';
 
 export function OpenPositions() {
-  const { trades, setupTags, psychologyTags, loading, error: fetchError, refetch } = usePortfolioData();
+  const { trades, setupTags, psychologyTags, instrumentSpecs, loading, error: fetchError, refetch } = usePortfolioData();
   const { prices, status, lastUpdated, refresh } = useForexPrices();
   const { isAdmin } = useAuth();
 
@@ -61,6 +63,12 @@ export function OpenPositions() {
     const slVal = editForm.sl.trim() === '' ? null : parseFloat(editForm.sl);
     if (editForm.sl.trim() !== '' && (slVal == null || isNaN(slVal) || slVal <= 0)) { alert('SL must be a positive number (or blank)'); return; }
 
+    // Re-snapshot point_value if the instrument changed (the DB trigger only fires on INSERT),
+    // so the GENERATED risk_usd / risk_pct stay consistent with the new instrument.
+    const instrKey = editForm.instrumen.trim().toUpperCase();
+    const spec = instrumentSpecs.find(s => s.instrument.toUpperCase() === instrKey);
+    const point_value = spec ? Number(spec.point_value) : getContractSize(editForm.instrumen.trim());
+
     setIsProcessing(true);
     try {
       const { error } = await supabase.from('trades').update({
@@ -70,6 +78,7 @@ export function OpenPositions() {
         sl: slVal,
         setup: editForm.setup || null,
         psikologi: editForm.psikologi || null,
+        point_value,
       }).eq('id', editTrade.id);
       if (error) throw error;
       setEditTrade(null);
@@ -157,14 +166,20 @@ export function OpenPositions() {
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
             <tr>
+              <th className="px-4 py-3">ID</th>
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Instrument</th>
               <th className="px-4 py-3">Pos</th>
               <th className="px-4 py-3">Entry</th>
               <th className="px-4 py-3">SL</th>
               <th className="px-4 py-3 text-right">Mark</th>
+              <th className="px-4 py-3">Session</th>
               <th className="px-4 py-3">Setup / Psych</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3 text-right">Pt Val</th>
+              <th className="px-4 py-3 text-right">Risk $</th>
+              <th className="px-4 py-3 text-right">Risk %</th>
+              <th className="px-4 py-3 text-right">R:R Plan</th>
               <th className="px-4 py-3 text-right">Unrealized P&amp;L</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -178,6 +193,7 @@ export function OpenPositions() {
               const showLive = isForexLiveSymbol(trade.instrumen) && markPrice != null;
               return (
                 <tr key={trade.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
+                  <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">{formatTradeId(trade.trade_number)}</td>
                   <td className="px-4 py-3 text-slate-300">{format(parseISO(trade.tanggal), 'dd MMM yyyy')}</td>
                   <td className="px-4 py-3 font-medium text-slate-200">{trade.instrumen}</td>
                   <td className="px-4 py-3">
@@ -193,6 +209,7 @@ export function OpenPositions() {
                   <td className="px-4 py-3 text-right text-slate-300">
                     {showLive ? `$${markPrice!.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : <span className="text-slate-500">—</span>}
                   </td>
+                  <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">{formatSession(trade.session)}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col gap-1">
                       <span className="text-xs text-blue-400">{trade.setup_tag?.name || '-'}</span>
@@ -204,6 +221,10 @@ export function OpenPositions() {
                       Open
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatNum(trade.point_value)}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-slate-200 tabular-nums">{formatUsd(trade.risk_usd)}</td>
+                  <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatPct(trade.risk_pct)}</td>
+                  <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatRr(trade.rr_planned)}</td>
                   <td className="px-4 py-3 text-right">
                     {closingTradeId === trade.id ? (
                       <div className="flex flex-col items-end gap-1">
@@ -288,7 +309,7 @@ export function OpenPositions() {
             })}
             {filteredTrades.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-slate-500">No open positions.</td>
+                <td colSpan={16} className="px-4 py-8 text-center text-slate-500">No open positions.</td>
               </tr>
             )}
           </tbody>

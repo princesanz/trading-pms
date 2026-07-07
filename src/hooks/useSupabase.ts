@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthProvider';
-import type { Trade, CashFlow, AccountSettings, SetupTag, PsychologyTag } from '../types';
+import type { Trade, CashFlow, AccountSettings, SetupTag, PsychologyTag, InstrumentSpec } from '../types';
 
 /** Attaches setup_tag / psychology_tag objects client-side from the tag lists.
  *  Avoids PostgREST FK-embedded joins (`setup_tag:setup_tags(...)`), which fail
@@ -28,6 +28,7 @@ export function usePortfolioData() {
   const [settings, setSettings] = useState<AccountSettings | null>(null);
   const [setupTags, setSetupTags] = useState<SetupTag[]>([]);
   const [psychologyTags, setPsychologyTags] = useState<PsychologyTag[]>([]);
+  const [instrumentSpecs, setInstrumentSpecs] = useState<InstrumentSpec[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,12 +36,13 @@ export function usePortfolioData() {
     setLoading(true);
     setError(null);
     try {
-      const [tradesRes, cashFlowsRes, settingsRes, setupsRes, psychRes] = await Promise.all([
+      const [tradesRes, cashFlowsRes, settingsRes, setupsRes, psychRes, specsRes] = await Promise.all([
         supabase.from('trades').select('*').order('tanggal', { ascending: true }).order('created_at', { ascending: true }),
         supabase.from('cash_flows').select('*').order('tanggal', { ascending: true }),
         supabase.from('account_settings').select('*').limit(1).maybeSingle(),
         supabase.from('setup_tags').select('*'),
         supabase.from('psychology_tags').select('*'),
+        supabase.from('instrument_specs').select('*'),
       ]);
 
       const firstError = tradesRes.error || cashFlowsRes.error || settingsRes.error || setupsRes.error || psychRes.error;
@@ -48,11 +50,17 @@ export function usePortfolioData() {
         console.error('[usePortfolioData] fetch error:', firstError);
         setError(firstError.message);
       }
+      // instrument_specs is non-critical (and may not exist until the Phase 4 migration
+      // is applied) — tolerate its failure so the rest of the app keeps working.
+      if (specsRes.error) {
+        console.warn('[usePortfolioData] instrument_specs unavailable:', specsRes.error.message);
+      }
 
       const setups = (setupsRes.data ?? []) as SetupTag[];
       const psychs = (psychRes.data ?? []) as PsychologyTag[];
       setSetupTags(setups);
       setPsychologyTags(psychs);
+      if (specsRes.data) setInstrumentSpecs(specsRes.data as InstrumentSpec[]);
       if (tradesRes.data) setTrades(attachTradeTags(tradesRes.data, setups, psychs) as Trade[]);
       if (cashFlowsRes.data) setCashFlows(cashFlowsRes.data as CashFlow[]);
       if (settingsRes.data) setSettings(settingsRes.data as AccountSettings);
@@ -72,5 +80,5 @@ export function usePortfolioData() {
     fetchData();
   }, [authLoading, session]);
 
-  return { trades, cashFlows, settings, setupTags, psychologyTags, loading: loading || authLoading, error, refetch: fetchData };
+  return { trades, cashFlows, settings, setupTags, psychologyTags, instrumentSpecs, loading: loading || authLoading, error, refetch: fetchData };
 }

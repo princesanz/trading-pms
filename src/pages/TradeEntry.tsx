@@ -7,7 +7,8 @@ import { usePortfolioData } from '../hooks/useSupabase';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { getContractSize } from '../types';
-import { calculateEffectiveTradingBalance } from '../lib/balanceCalc';
+import { calculateEffectiveTradingBalance, calculateRealizedBalance } from '../lib/balanceCalc';
+import { classifySession } from '../lib/session';
 
 const tradeSchema = z.object({
   tanggal: z.string().min(1, 'Date is required'),
@@ -18,7 +19,7 @@ const tradeSchema = z.object({
   leverage: z.number().min(1, 'Leverage must be at least 1'),
   harga_entry: z.number().positive(),
   sl: z.number().positive().optional().or(z.literal(0)),
-  tp: z.number().positive().optional().or(z.literal(0)),
+  tp: z.number().positive('Take Profit is required for R:R Planned'),
   komisi_swap: z.number(),
   setup: z.string().uuid().optional(),
   psikologi: z.string().uuid().optional(),
@@ -28,7 +29,7 @@ const tradeSchema = z.object({
 type TradeFormValues = z.infer<typeof tradeSchema>;
 
 export function TradeEntry() {
-  const { trades, settings, setupTags, psychologyTags, cashFlows } = usePortfolioData();
+  const { trades, settings, setupTags, psychologyTags, cashFlows, instrumentSpecs } = usePortfolioData();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -48,6 +49,48 @@ export function TradeEntry() {
   const watchSL = watch('sl');
   const watchInstrumen = watch('instrumen');
   const watchLeverage = watch('leverage');
+  const watchTp = watch('tp');
+
+  // Point value snapshot source: instrument_specs (DB) with a fallback to the
+  // static contract-size table so previews still work before the migration seed loads.
+  const pointValue = useMemo(() => {
+    if (!watchInstrumen) return null;
+    const key = watchInstrumen.toUpperCase();
+    const spec = instrumentSpecs.find(s => s.instrument.toUpperCase() === key);
+    return spec ? Number(spec.point_value) : getContractSize(watchInstrumen);
+  }, [watchInstrumen, instrumentSpecs]);
+
+  // balance_at_open snapshot (realized-only: initial capital + net cash flows + realized P&L).
+  const balanceAtOpen = useMemo(
+    () => calculateRealizedBalance(settings?.modal_awal ?? 0, cashFlows, 'Forex', trades),
+    [settings, cashFlows, trades]
+  );
+
+  // Predicted next TRADE ID for the preview (DB assigns the authoritative value on insert).
+  const nextTradeNumber = useMemo(() => {
+    const max = trades.reduce((m, t) => Math.max(m, t.trade_number ?? 0), 0);
+    return max + 1;
+  }, [trades]);
+
+  // Session is derived from "now" (open time) — recomputed on submit so it stays exact.
+  const previewSession = useMemo(() => classifySession(new Date()), []);
+
+  const previewRiskUsd = useMemo(() => {
+    if (!watchEntry || !watchSL || !watchLot || pointValue == null) return null;
+    return Math.abs(watchEntry - watchSL) * pointValue * watchLot;
+  }, [watchEntry, watchSL, watchLot, pointValue]);
+
+  const previewRiskPct = useMemo(() => {
+    if (previewRiskUsd == null || !balanceAtOpen) return null;
+    return (previewRiskUsd / balanceAtOpen) * 100;
+  }, [previewRiskUsd, balanceAtOpen]);
+
+  const previewRrPlanned = useMemo(() => {
+    if (!watchTp || !watchEntry || !watchSL) return null;
+    const denom = Math.abs(watchEntry - watchSL);
+    if (denom === 0) return null;
+    return Math.abs(watchTp - watchEntry) / denom;
+  }, [watchTp, watchEntry, watchSL]);
 
   const currentBalance = useMemo(() => {
     // Only consider closed trades with a saldo_akun for the current balance
@@ -91,9 +134,19 @@ export function TradeEntry() {
     if (balanceError) return;
     setIsSubmitting(true);
     
-    const riskToReward = data.sl && data.tp 
+    const riskToReward = data.sl && data.tp
       ? (Math.abs(data.tp - data.harga_entry) / Math.abs(data.harga_entry - data.sl)).toFixed(2)
       : null;
+
+    // Snapshots captured ONCE at open — never live-recomputed afterward.
+    const openTs = new Date().toISOString();          // UTC instant
+    const session = classifySession(openTs);          // DST-aware, UTC -> market tz
+    const balance_at_open = calculateRealizedBalance(settings?.modal_awal ?? 0, cashFlows, 'Forex', trades);
+    const specPointValue = (() => {
+      const key = data.instrumen.toUpperCase();
+      const spec = instrumentSpecs.find(s => s.instrument.toUpperCase() === key);
+      return spec ? Number(spec.point_value) : getContractSize(data.instrumen);
+    })();
 
     const insertResponse = await supabase.from('trades').insert({
       tanggal: data.tanggal,
@@ -111,6 +164,12 @@ export function TradeEntry() {
       catatan: data.catatan,
       risk_to_reward: riskToReward ? `1:${riskToReward}` : null,
       status: 'Open',
+      // Phase 4 snapshots (trade_number, risk_usd, risk_pct, rr_planned, rr_actual are
+      // assigned by the DB via the sequence default / GENERATED columns / trigger).
+      open_ts: openTs,
+      session,
+      balance_at_open,
+      point_value: specPointValue,
       // net_pnl, persen_profit_loss, and saldo_akun stay null until trade is closed.
     }).select();
 
@@ -262,12 +321,13 @@ export function TradeEntry() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-300">Take Profit (TP)</label>
-            <input 
-              type="number" 
+            <input
+              type="number"
               step="0.00001"
-              {...register('tp', { valueAsNumber: true })} 
+              {...register('tp', { valueAsNumber: true })}
               className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
             />
+            {errors.tp && <span className="text-xs text-red-500">{errors.tp.message}</span>}
           </div>
 
           <div className="space-y-2">
@@ -317,6 +377,23 @@ export function TradeEntry() {
           </div>
         </div>
 
+        {/* Auto-computed preview — read-only. These mirror what the DB will store on insert. */}
+        <div className="pt-4 border-t border-slate-800">
+          <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3">Auto-computed</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <ComputedField label="Trade ID" value={`TRD-${nextTradeNumber}`} />
+            <ComputedField label="Balance at Open" value={`$${balanceAtOpen.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+            <ComputedField label="Session" value={previewSession} />
+            <ComputedField label="Point Value" value={pointValue != null ? pointValue.toLocaleString() : '—'} />
+            <ComputedField label="Risk USD" value={previewRiskUsd != null ? `$${previewRiskUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'} />
+            <ComputedField label="Risk %" value={previewRiskPct != null ? `${previewRiskPct.toFixed(2)}%` : '—'} />
+            <ComputedField label="R:R Planned" value={previewRrPlanned != null ? `1:${previewRrPlanned.toFixed(2)}` : '—'} />
+          </div>
+          <p className="text-[11px] text-slate-500 mt-3">
+            Trade ID is a prediction; the final value is assigned by the database on save. Session and Balance are snapshotted at the moment you log the trade.
+          </p>
+        </div>
+
         <div className="pt-4 border-t border-slate-800 flex justify-end">
           <button
             type="submit"
@@ -328,6 +405,16 @@ export function TradeEntry() {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/** Read-only auto-computed field shown in the New Trade preview. */
+function ComputedField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-sm font-bold text-slate-100 tabular-nums truncate" title={value}>{value}</div>
     </div>
   );
 }
