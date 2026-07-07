@@ -8,6 +8,14 @@ import { useForexPrices } from '../contexts/ForexPriceProvider';
 import { forexDeskSummary } from '../lib/deskAggregates';
 import { PriceStatusBadge } from '../components/PriceStatusBadge';
 
+// Bucket timestamps by the user's LOCAL (WIB) calendar day. Timestamps are stored in UTC,
+// so a trade closed 01:00 WIB must count as that WIB day, not the prior UTC day. We derive
+// the day via Intl (timeZone) rather than hardcoding a +7 offset. `en-CA` yields YYYY-MM-DD.
+const WIB_TZ = 'Asia/Jakarta';
+function wibDayKey(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString('en-CA', { timeZone: WIB_TZ });
+}
+
 export function Dashboard() {
   const { trades, cashFlows, settings, loading } = usePortfolioData();
   const { prices, status, lastUpdated, refresh } = useForexPrices();
@@ -52,17 +60,25 @@ export function Dashboard() {
     };
   }, [closedTrades, trades, settings]);
 
-  // Equity curve only from closed trades (they have saldo_akun populated)
+  // Equity curve: ONE point per WIB trading day (daily closing balance), not one per trade.
+  // closedTrades arrives in ascending replay order (the same order forexBalances.ts accumulates
+  // saldo_akun), so within each close-day the LAST write wins = end-of-day cumulative realized
+  // balance. Balance values are taken verbatim from saldo_akun — no recomputation here.
   const chartData = useMemo(() => {
-    return closedTrades
-      .filter(t => t.saldo_akun != null)
-      .map(t => ({
-        date: t.tanggal,
+    const byDay = new Map<string, { date: string; balance: number; pnl: number | null; instrument: string; psychology: string }>();
+    for (const t of closedTrades) {
+      if (t.saldo_akun == null) continue;
+      // Bucket by close date; fall back to the open date for legacy rows without tanggal_tutup.
+      const day = wibDayKey(t.tanggal_tutup || t.tanggal);
+      byDay.set(day, {
+        date: day,
         balance: t.saldo_akun,
-        pnl: t.net_pnl,
+        pnl: t.net_pnl ?? null,
         instrument: t.instrumen,
-        psychology: t.psychology_tag?.name || 'Unknown'
-      }));
+        psychology: t.psychology_tag?.name || 'Unknown',
+      });
+    }
+    return Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [closedTrades]);
 
   const pnlByDay = useMemo(() => {
@@ -183,9 +199,10 @@ export function Dashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                   <XAxis dataKey="date" stroke="#64748b" tickFormatter={(val) => format(parseISO(val), 'MMM dd')} />
                   <YAxis stroke="#64748b" domain={['auto', 'auto']} tickFormatter={(val) => `$${val}`} />
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc' }}
                     itemStyle={{ color: '#10b981' }}
+                    labelFormatter={(val) => format(parseISO(val as string), 'MMM dd, yyyy')}
                   />
                   <Line type="monotone" dataKey="balance" stroke="#10b981" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
                 </LineChart>
