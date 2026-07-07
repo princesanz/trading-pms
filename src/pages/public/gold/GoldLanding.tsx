@@ -86,21 +86,25 @@ export function GoldLanding() {
     // No global cap here: the section-03 component caps per filtered view.
     const rows: TrackRow[] = [
       ...pub.forexClosed.map((t): TrackRow => ({
+        id: t.trade_number ?? null,
         inst: t.instrument, desk: 'Forex, Commodities & Indices', side: t.direction === 'Sell' ? 'SHORT' : 'LONG',
         entry: fmtPrice(t.harga_entry), exit: t.harga_exit != null ? fmtPrice(t.harga_exit) : '—',
         pnl: t.net_pnl ?? null, date: (t.tanggal_tutup ?? t.tanggal_buka) ?? '', category: 'forex',
       })),
       ...pub.cryptoFuturesClosed.map((t): TrackRow => ({
+        id: null, // crypto futures come from a separate table without a trade_number
         inst: t.coin, desk: 'Crypto', side: t.direction === 'Short' ? 'SHORT' : 'LONG',
         entry: fmtPrice(t.harga_entry), exit: t.harga_exit != null ? fmtPrice(t.harga_exit) : '—',
         pnl: t.realized_pnl ?? null, date: (t.tanggal_tutup ?? t.tanggal_buka) ?? '', category: 'crypto',
       })),
       ...pub.spotSales.map((s): TrackRow => ({
+        id: null, // spot sales table has no trade_number
         inst: s.coin, desk: 'Crypto', side: 'SELL',
         entry: fmtPrice(s.harga_beli_rata_at_sell), exit: fmtPrice(s.harga_jual),
         pnl: s.realized_pnl ?? null, date: s.tanggal, category: 'crypto',
       })),
       ...pub.stockSells.map((s): TrackRow => ({
+        id: null, // stock sells table has no trade_number
         inst: s.ticker, desk: 'Stock Market', side: 'SELL',
         entry: '—', exit: fmtPrice(s.harga), pnl: null, date: s.tanggal, category: 'stock',
       })),

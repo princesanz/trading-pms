@@ -4,6 +4,8 @@ import { useReveal } from './goldHooks';
 export type TrackCategory = 'forex' | 'crypto' | 'stock';
 
 export type TrackRow = {
+  /** Trade sequence number (forex only, from `trades.trade_number`). Null for crypto/stock closes. */
+  id: number | null;
   inst: string;
   desk: string;
   side: 'LONG' | 'SHORT' | 'SELL';
@@ -122,9 +124,10 @@ export function TrackRecordGold({ rows, reduced }: { rows: TrackRow[]; reduced: 
         ) : (
           <>
           <div className="overflow-x-auto border-t border-hairline">
-            <table className="w-full text-left min-w-[680px]">
+            <table className="w-full text-left min-w-[760px]">
               <thead>
                 <tr className="font-data text-[10px] uppercase tracking-[0.16em] text-bone-dim">
+                  <th className="py-3 pr-4">ID</th>
                   <th className="py-3 pr-4">Instrument</th>
                   <th className="py-3 pr-4">Desk</th>
                   <th className="py-3 pr-4">Side</th>
@@ -137,6 +140,7 @@ export function TrackRecordGold({ rows, reduced }: { rows: TrackRow[]; reduced: 
               <tbody>
                 {pageRows.map((r, i) => (
                   <tr key={i} className="border-t border-hairline hover:bg-ink-2/60 transition-colors">
+                    <td className="font-data py-3.5 pr-4 text-bone-dim text-xs whitespace-nowrap">{r.id != null ? `TRD-${r.id}` : '—'}</td>
                     <td className="font-data py-3.5 pr-4 text-bone" style={{ fontWeight: 500 }}>{r.inst}</td>
                     <td className="font-grotesk py-3.5 pr-4 text-sm text-bone-dim">{r.desk}</td>
                     <td className="py-3.5 pr-4"><SideBadge side={r.side} /></td>

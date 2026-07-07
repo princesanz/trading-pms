@@ -35,8 +35,12 @@ CREATE OR REPLACE VIEW public_stock_holdings AS
 
 -- ── Closed trades (track record) ────────────────────────────────────────────
 CREATE OR REPLACE VIEW public_forex_closed_trades AS
+  -- NOTE: trade_number is appended LAST on purpose. CREATE OR REPLACE VIEW can only APPEND
+  -- new columns at the end — inserting one earlier renames/shifts existing columns and fails
+  -- with "cannot change name of view column" (42P16).
   SELECT instrumen AS instrument, posisi AS direction, lot, harga_entry, harga_exit,
-         net_pnl, persen_profit_loss, tanggal AS tanggal_buka, tanggal_tutup, 'Forex'::text AS desk
+         net_pnl, persen_profit_loss, tanggal AS tanggal_buka, tanggal_tutup, 'Forex'::text AS desk,
+         trade_number
   FROM trades WHERE status = 'Closed';
 
 CREATE OR REPLACE VIEW public_crypto_futures_closed AS

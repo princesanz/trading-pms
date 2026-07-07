@@ -18,6 +18,7 @@ export function TradeHistory() {
   const [editDate, setEditDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRecalculating, setIsRecalculating] = useState(false);
+  const [page, setPage] = useState(1);
 
   const resetEdit = () => { setEditingTradeId(null); setEditPnl(''); setEditExit(''); setEditDate(new Date().toISOString().split('T')[0]); };
 
@@ -34,9 +35,24 @@ export function TradeHistory() {
     if (filterInstrument) {
       result = result.filter(t => t.instrumen === filterInstrument);
     }
-    // Most recent first
-    return result.slice().reverse();
+    // Sort by CLOSE date (tanggal_tutup) descending — newest closed trade first. Rows missing
+    // a close date fall back to the open date, then sink to the bottom, so sorting never crashes.
+    return result.slice().sort((a, b) => {
+      const av = a.tanggal_tutup || a.tanggal || '';
+      const bv = b.tanggal_tutup || b.tanggal || '';
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return bv.localeCompare(av);
+    });
   }, [closedTrades, filterInstrument]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTrades.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedTrades = useMemo(
+    () => filteredTrades.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filteredTrades, safePage]
+  );
 
   const handleEditTrade = async (tradeId: string) => {
     const pnlValue = parseFloat(editPnl);
@@ -130,7 +146,7 @@ export function TradeHistory() {
 
           <select
             value={filterInstrument}
-            onChange={(e) => setFilterInstrument(e.target.value)}
+            onChange={(e) => { setFilterInstrument(e.target.value); setPage(1); }}
             className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
           >
             <option value="">All Instruments</option>
@@ -166,7 +182,7 @@ export function TradeHistory() {
             </tr>
           </thead>
           <tbody>
-            {filteredTrades.map((trade) => (
+            {pagedTrades.map((trade) => (
               <tr key={trade.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
                 <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">{formatTradeId(trade.trade_number)}</td>
                 <td className="px-4 py-3 text-slate-300">{format(parseISO(trade.tanggal), 'dd MMM yyyy')}</td>
@@ -292,6 +308,64 @@ export function TradeHistory() {
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <span className="text-xs uppercase tracking-wider text-slate-500">
+            Page {safePage} of {totalPages}
+          </span>
+          <div className="flex flex-wrap items-center gap-1">
+            <PageBtn label="«" title="First page" disabled={safePage === 1} onClick={() => setPage(1)} />
+            <PageBtn label="‹" title="Previous page" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))} />
+            {pageList(safePage, totalPages).map((p, i) =>
+              p === '…' ? (
+                <span key={`e${i}`} className="text-xs text-slate-500 px-1.5 select-none">…</span>
+              ) : (
+                <PageBtn key={p} label={String(p)} active={p === safePage} onClick={() => setPage(p)} />
+              )
+            )}
+            <PageBtn label="›" title="Next page" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} />
+            <PageBtn label="»" title="Last page" disabled={safePage === totalPages} onClick={() => setPage(totalPages)} />
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+const PAGE_SIZE = 10;
+
+/** Windowed page-number list with ellipsis gaps, e.g. total=20, current=5 → [1,'…',4,5,6,'…',20]. */
+function pageList(current: number, total: number): (number | '…')[] {
+  if (total <= 1) return [1];
+  const range: number[] = [];
+  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) range.push(i);
+  const pages: (number | '…')[] = [1];
+  if (range.length && range[0] > 2) pages.push('…');
+  pages.push(...range);
+  if (range.length && range[range.length - 1] < total - 1) pages.push('…');
+  pages.push(total);
+  return pages;
+}
+
+/** Pagination button — internal dark theme (active = emerald accent, else slate/bordered). */
+function PageBtn({
+  label, onClick, active = false, disabled = false, title,
+}: { label: string; onClick: () => void; active?: boolean; disabled?: boolean; title?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-current={active ? 'page' : undefined}
+      title={title}
+      className={cn(
+        "min-w-[32px] px-2.5 py-1.5 rounded-lg border text-sm font-medium transition-colors focus:ring-1 focus:ring-emerald-500 outline-none disabled:opacity-40 disabled:cursor-not-allowed",
+        active
+          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+          : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-slate-100"
+      )}
+    >
+      {label}
+    </button>
   );
 }
