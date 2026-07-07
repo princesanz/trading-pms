@@ -40,16 +40,52 @@ function SideBadge({ side }: { side: TrackRow['side'] }) {
   );
 }
 
+const PAGE_SIZE = 10;
+
+/**
+ * Builds a windowed page-number list with ellipsis gaps, e.g. total=20, current=5
+ * → [1, '…', 4, 5, 6, '…', 20]. Always keeps first & last, plus current ±1.
+ */
+function pageList(current: number, total: number): (number | '…')[] {
+  if (total <= 1) return [1];
+  const range: number[] = [];
+  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) range.push(i);
+  const pages: (number | '…')[] = [1];
+  if (range.length && range[0] > 2) pages.push('…');
+  pages.push(...range);
+  if (range.length && range[range.length - 1] < total - 1) pages.push('…');
+  pages.push(total);
+  return pages;
+}
+
 export function TrackRecordGold({ rows, reduced }: { rows: TrackRow[]; reduced: boolean }) {
   const { ref, shown } = useReveal<HTMLDivElement>(reduced);
   const [tab, setTab] = useState<TabKey>('ALL');
+  const [page, setPage] = useState(1);
 
-  // Client-side: filter the once-fetched rows by category, then cap the view.
+  const switchTab = (key: TabKey) => { setTab(key); setPage(1); };
+
+  // Client-side: filter the once-fetched rows by category, then sort by CLOSE date
+  // (r.date is the exit/close date) DESCENDING — newest first. Rows missing a close
+  // date sink to the bottom so the sort never crashes.
   const filtered = useMemo(() => {
     const cat = TABS.find(t => t.key === tab)?.cat ?? null;
     const list = cat ? rows.filter(r => r.category === cat) : rows;
-    return list.slice(0, 12);
+    return list.slice().sort((a, b) => {
+      const av = a.date || '', bv = b.date || '';
+      if (!av && !bv) return 0;
+      if (!av) return 1;   // a missing → after b
+      if (!bv) return -1;  // b missing → after a
+      return bv.localeCompare(av); // descending
+    });
   }, [rows, tab]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = useMemo(
+    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filtered, safePage]
+  );
 
   return (
     <section id="track" className="bg-ink text-bone border-t border-hairline">
@@ -70,7 +106,7 @@ export function TrackRecordGold({ rows, reduced }: { rows: TrackRow[]; reduced: 
             return (
               <button
                 key={t.key}
-                onClick={() => setTab(t.key)}
+                onClick={() => switchTab(t.key)}
                 aria-pressed={active}
                 className={`font-data text-xs px-3 py-1.5 rounded border transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${active ? 'bg-gold text-ink border-gold' : 'border-hairline text-bone-dim hover:text-bone hover:border-gold/50'}`}
                 style={active ? { fontWeight: 600 } : undefined}
@@ -84,6 +120,7 @@ export function TrackRecordGold({ rows, reduced }: { rows: TrackRow[]; reduced: 
         {filtered.length === 0 ? (
           <div className="font-data text-sm text-bone-dim py-8 text-center border-t border-hairline">{EMPTY_MSG[tab]}</div>
         ) : (
+          <>
           <div className="overflow-x-auto border-t border-hairline">
             <table className="w-full text-left min-w-[680px]">
               <thead>
@@ -98,7 +135,7 @@ export function TrackRecordGold({ rows, reduced }: { rows: TrackRow[]; reduced: 
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r, i) => (
+                {pageRows.map((r, i) => (
                   <tr key={i} className="border-t border-hairline hover:bg-ink-2/60 transition-colors">
                     <td className="font-data py-3.5 pr-4 text-bone" style={{ fontWeight: 500 }}>{r.inst}</td>
                     <td className="font-grotesk py-3.5 pr-4 text-sm text-bone-dim">{r.desk}</td>
@@ -114,8 +151,52 @@ export function TrackRecordGold({ rows, reduced }: { rows: TrackRow[]; reduced: 
               </tbody>
             </table>
           </div>
+
+          {totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-4 mt-6">
+              <span className="font-data text-[10px] uppercase tracking-[0.16em] text-bone-dim">
+                Page {safePage} of {totalPages}
+              </span>
+              <div className="flex flex-wrap items-center gap-1">
+                <PageBtn label="«" title="First page" disabled={safePage === 1} onClick={() => setPage(1)} />
+                <PageBtn label="‹" title="Previous page" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))} />
+                {pageList(safePage, totalPages).map((p, i) =>
+                  p === '…' ? (
+                    <span key={`e${i}`} className="font-data text-xs text-bone-dim px-1.5 select-none">…</span>
+                  ) : (
+                    <PageBtn key={p} label={String(p)} active={p === safePage} onClick={() => setPage(p)} />
+                  )
+                )}
+                <PageBtn label="›" title="Next page" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} />
+                <PageBtn label="»" title="Last page" disabled={safePage === totalPages} onClick={() => setPage(totalPages)} />
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
     </section>
+  );
+}
+
+/** Pagination button — matches the gold tab-pill theme (active = filled gold, else dark/bordered). */
+function PageBtn({
+  label, onClick, active = false, disabled = false, title,
+}: { label: string; onClick: () => void; active?: boolean; disabled?: boolean; title?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-current={active ? 'page' : undefined}
+      title={title}
+      className={`font-data text-xs min-w-[32px] px-2.5 py-1.5 rounded border transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-30 disabled:cursor-not-allowed ${
+        active
+          ? 'bg-gold text-ink border-gold'
+          : 'border-hairline text-bone-dim hover:text-bone hover:border-gold/50'
+      }`}
+      style={active ? { fontWeight: 600 } : undefined}
+    >
+      {label}
+    </button>
   );
 }
