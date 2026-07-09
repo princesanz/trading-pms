@@ -209,8 +209,8 @@ export function OpenPositions() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-slate-300">{trade.harga_entry}</td>
-                  <td className="px-4 py-3 text-slate-400">{trade.sl || '-'}</td>
-                  <td className="px-4 py-3 text-slate-400">{trade.tp || '-'}</td>
+                  <td className={cn("px-4 py-3", trade.sl ? "text-rose-400" : "text-slate-400")}>{trade.sl || '-'}</td>
+                  <td className={cn("px-4 py-3", trade.tp ? "text-emerald-400" : "text-slate-400")}>{trade.tp || '-'}</td>
                   <td className="px-4 py-3 text-right text-slate-300">
                     {showLive ? `$${markPrice!.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : <span className="text-slate-500">—</span>}
                   </td>

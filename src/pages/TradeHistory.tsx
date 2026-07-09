@@ -198,9 +198,15 @@ export function TradeHistory() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-slate-300">{trade.harga_entry}</td>
-                <td className="px-4 py-3 text-slate-300">{trade.harga_exit != null ? trade.harga_exit : <span className="text-slate-500">—</span>}</td>
-                <td className="px-4 py-3 text-slate-400">{trade.sl || '-'}</td>
-                <td className="px-4 py-3 text-slate-400">{trade.tp || '-'}</td>
+                <td className={cn(
+                  "px-4 py-3",
+                  trade.harga_exit == null ? "text-slate-300"
+                    : trade.net_pnl != null && trade.net_pnl > 0 ? "text-emerald-400"
+                    : trade.net_pnl != null && trade.net_pnl < 0 ? "text-rose-400"
+                    : "text-slate-300"
+                )}>{trade.harga_exit != null ? trade.harga_exit : <span className="text-slate-500">—</span>}</td>
+                <td className={cn("px-4 py-3", trade.sl ? "text-rose-400" : "text-slate-400")}>{trade.sl || '-'}</td>
+                <td className={cn("px-4 py-3", trade.tp ? "text-emerald-400" : "text-slate-400")}>{trade.tp || '-'}</td>
                 <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">{formatSession(trade.session)}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-col gap-1">
