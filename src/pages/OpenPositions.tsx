@@ -11,6 +11,7 @@ import { PriceStatusBadge } from '../components/PriceStatusBadge';
 import { useAuth } from '../contexts/AuthProvider';
 import { recalculateBalances } from '../lib/forexBalances';
 import { formatTradeId, formatUsd, formatPct, formatRr, formatNum, formatSession } from '../lib/tradeFormat';
+import { HScrollTable } from '../components/HScrollTable';
 import type { Trade, TradePosition } from '../types';
 
 export function OpenPositions() {
@@ -162,7 +163,7 @@ export function OpenPositions() {
         </div>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+      <HScrollTable className="bg-slate-900 border border-slate-800 rounded-xl">
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
             <tr>
@@ -318,7 +319,7 @@ export function OpenPositions() {
             )}
           </tbody>
         </table>
-      </div>
+      </HScrollTable>
 
       {/* Edit drawer */}
       {editTrade && (

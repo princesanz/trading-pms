@@ -6,6 +6,7 @@ import { cn } from '../lib/utils';
 import { Check, X, Trash2, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthProvider';
 import { recalculateBalances } from '../lib/forexBalances';
+import { HScrollTable } from '../components/HScrollTable';
 import { formatTradeId, formatUsd, formatPct, formatRr, formatNum, formatSession } from '../lib/tradeFormat';
 import { sortClosedDesc } from '../lib/sortTrades';
 
@@ -155,7 +156,7 @@ export function TradeHistory() {
         </div>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+      <HScrollTable className="bg-slate-900 border border-slate-800 rounded-xl">
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
             <tr>
@@ -309,7 +310,7 @@ export function TradeHistory() {
             )}
           </tbody>
         </table>
-      </div>
+      </HScrollTable>
 
       {totalPages > 1 && (
         <div className="flex flex-wrap items-center justify-between gap-4">
