@@ -45,9 +45,9 @@ export function GoldLanding() {
 
     const pct = (v: number) => (totalAum > 0 ? Math.round((v / totalAum) * 100) : 0);
     const slices: AllocSlice[] = [
-      { desk: 'Forex, Commodities & Indices', equityUsd: forexEq, pct: pct(forexEq), color: '#E8D199', desc: 'Majors, indices & XAUUSD' },
+      { desk: 'Forex, Commodities & Indices', equityUsd: forexEq, pct: pct(forexEq), color: '#E8D199', desc: 'Majors, indices & Metals' },
       { desk: 'Crypto', equityUsd: cryptoEq, pct: pct(cryptoEq), color: '#7F95A8', desc: 'Spot & perpetual futures' },
-      { desk: 'Stock Market', equityUsd: sahamEqUsd, pct: pct(sahamEqUsd), color: '#7FB89A', desc: 'Indonesian blue-chips' },
+      { desk: 'Stock Market', equityUsd: sahamEqUsd, pct: pct(sahamEqUsd), color: '#7FB89A', desc: 'US & Indonesian equities' },
     ];
 
     // Win rate — from closed positions that carry a realized P&L.

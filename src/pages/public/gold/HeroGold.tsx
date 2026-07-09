@@ -162,9 +162,10 @@ export function HeroGold({ aum, returnPct, winRate, openCount, xau, xauUpdated, 
                 Live · {updatedLabel}
               </span>
               {TICKERS.map(({ label }) => {
-                // XAUUSD falls back to the live prop if the Yahoo fetch hasn't landed.
+                // XAUUSD price stays sourced from the internal spot feed (the `xau` prop); the
+                // proxy is used only for its day-change %. Other symbols take price from the proxy.
                 const t = ticks[label];
-                const price = t?.price ?? (label === 'XAUUSD' ? xau : null);
+                const price = label === 'XAUUSD' ? (xau ?? t?.price ?? null) : (t?.price ?? null);
                 const chg = t?.changePct ?? null;
                 const up = chg != null && chg >= 0;
                 return (

@@ -12,7 +12,11 @@ export const config = { runtime: 'edge' };
 // Friendly symbol -> actual Yahoo Finance symbol. Anything not listed is
 // passed through unchanged (this supports US tickers like AAPL and IDX tickers like BBCA.JK).
 const YAHOO_SYMBOL: Record<string, string> = {
-  XAUUSD: 'XAUUSD=X',
+  // Gold: the FX-style 'XAUUSD=X' quote is unreliable and often omits a previous close,
+  // leaving changePercent null (so the ticker showed no arrow). COMEX gold futures 'GC=F'
+  // reliably returns both regularMarketPrice and previousClose. The hero shows spot price
+  // from the internal feed and uses this only for the day-change %, which tracks spot closely.
+  XAUUSD: 'GC=F',
   DXY: 'DX-Y.NYB',
 };
 
