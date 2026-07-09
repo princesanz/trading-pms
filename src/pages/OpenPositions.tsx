@@ -169,9 +169,11 @@ export function OpenPositions() {
               <th className="px-4 py-3">ID</th>
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Instrument</th>
+              <th className="px-4 py-3 text-right">Lot</th>
               <th className="px-4 py-3">Pos</th>
               <th className="px-4 py-3">Entry</th>
               <th className="px-4 py-3">SL</th>
+              <th className="px-4 py-3">TP</th>
               <th className="px-4 py-3 text-right">Mark</th>
               <th className="px-4 py-3">Session</th>
               <th className="px-4 py-3">Setup / Psych</th>
@@ -196,6 +198,7 @@ export function OpenPositions() {
                   <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">{formatTradeId(trade.trade_number)}</td>
                   <td className="px-4 py-3 text-slate-300">{format(parseISO(trade.tanggal), 'dd MMM yyyy')}</td>
                   <td className="px-4 py-3 font-medium text-slate-200">{trade.instrumen}</td>
+                  <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{trade.lot != null ? trade.lot.toFixed(2) : '-'}</td>
                   <td className="px-4 py-3">
                     <span className={cn(
                       "px-2 py-0.5 rounded text-xs font-medium",
@@ -206,6 +209,7 @@ export function OpenPositions() {
                   </td>
                   <td className="px-4 py-3 text-slate-300">{trade.harga_entry}</td>
                   <td className="px-4 py-3 text-slate-400">{trade.sl || '-'}</td>
+                  <td className="px-4 py-3 text-slate-400">{trade.tp || '-'}</td>
                   <td className="px-4 py-3 text-right text-slate-300">
                     {showLive ? `$${markPrice!.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : <span className="text-slate-500">—</span>}
                   </td>
@@ -309,7 +313,7 @@ export function OpenPositions() {
             })}
             {filteredTrades.length === 0 && (
               <tr>
-                <td colSpan={16} className="px-4 py-8 text-center text-slate-500">No open positions.</td>
+                <td colSpan={18} className="px-4 py-8 text-center text-slate-500">No open positions.</td>
               </tr>
             )}
           </tbody>
