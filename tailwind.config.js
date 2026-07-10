@@ -1,3 +1,5 @@
+import { admTailwind } from './src/design/tokens';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -6,12 +8,18 @@ export default {
   ],
   theme: {
     extend: {
+      // Admin redesign namespace (adm-*) — additive only; the public gold
+      // tokens below are FROZEN (the public landing depends on them).
+      fontSize: admTailwind.fontSize,
+      borderRadius: admTailwind.borderRadius,
       fontFamily: {
         display: ['Fraunces', 'serif'],
         grotesk: ['"Hanken Grotesk"', 'sans-serif'],
         data: ['"JetBrains Mono"', 'monospace'],
+        ...admTailwind.fontFamily,
       },
       colors: {
+        ...admTailwind.colors,
         // SANZ CAPITAL public "precious metals" theme (gold direction)
         ink: "#0B0A08",
         "ink-2": "#14110C",
