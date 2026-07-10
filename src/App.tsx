@@ -1,5 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/queryClient';
 import { AppLayout } from './components/layout/AppLayout';
 import { CryptoPriceProvider } from './contexts/CryptoPriceProvider';
 import { ForexPriceProvider } from './contexts/ForexPriceProvider';
@@ -77,6 +79,7 @@ function OverviewProviders() {
 
 export default function App() {
   return (
+    <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <BrowserRouter>
         <Routes>
@@ -128,5 +131,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </QueryClientProvider>
   );
 }
