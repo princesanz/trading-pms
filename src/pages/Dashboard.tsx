@@ -2,10 +2,11 @@ import { useMemo } from 'react';
 import { usePortfolioData } from '../hooks/useSupabase';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, TrendingDown, Activity, Target, Wallet, Landmark, Banknote } from 'lucide-react';
-import { format, parseISO, getDay } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { cn } from '../lib/utils';
 import { useForexPrices } from '../contexts/ForexPriceProvider';
 import { forexDeskSummary } from '../lib/deskAggregates';
+import { winLossStats, maxDrawdownPct, groupedWinRates, pnlByWeekday } from '../lib/tradeStats';
 import { PriceStatusBadge } from '../components/PriceStatusBadge';
 
 // Bucket timestamps by the user's LOCAL (WIB) calendar day. Timestamps are stored in UTC,
@@ -32,31 +33,18 @@ export function Dashboard() {
   // Filter to only closed trades for all dashboard analytics
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'Closed'), [trades]);
 
+  // Formula extraction (redesign Phase 0): the math now lives in lib/tradeStats.ts,
+  // shared with CryptoDashboard which had a duplicated copy. Shapes unchanged.
   const stats = useMemo(() => {
-    const wonTrades = closedTrades.filter(t => (t.net_pnl || 0) > 0);
-    const lostTrades = closedTrades.filter(t => (t.net_pnl || 0) < 0);
-    const winRate = closedTrades.length > 0 ? (wonTrades.length / closedTrades.length) * 100 : 0;
-
-    // Max Drawdown: largest peak-to-trough decline in saldo_akun among closed trades
-    let peak = settings?.modal_awal || 0;
-    let maxDrawdown = 0;
-    
-    closedTrades.forEach(t => {
-      const balance = t.saldo_akun || 0;
-      if (balance > peak) peak = balance;
-      if (peak > 0) {
-        const drawdown = ((peak - balance) / peak) * 100;
-        if (drawdown > maxDrawdown) maxDrawdown = drawdown;
-      }
-    });
-
+    const { winRate, wonCount, lostCount, totalClosed } = winLossStats(closedTrades);
+    const maxDrawdown = maxDrawdownPct(closedTrades, settings?.modal_awal || 0);
     return {
       winRate,
       maxDrawdown,
-      totalClosed: closedTrades.length,
+      totalClosed,
       totalOpen: trades.length - closedTrades.length,
-      wonCount: wonTrades.length,
-      lostCount: lostTrades.length,
+      wonCount,
+      lostCount,
     };
   }, [closedTrades, trades, settings]);
 
@@ -81,44 +69,12 @@ export function Dashboard() {
     return Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [closedTrades]);
 
-  const pnlByDay = useMemo(() => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const result = days.map(day => ({ day, profit: 0, loss: 0 }));
-    
-    closedTrades.forEach(t => {
-      if (t.net_pnl) {
-        const dayIdx = getDay(parseISO(t.tanggal));
-        if (t.net_pnl > 0) result[dayIdx].profit += t.net_pnl;
-        else result[dayIdx].loss += Math.abs(t.net_pnl);
-      }
-    });
-    // Return only Mon-Fri
-    return result.slice(1, 6);
-  }, [closedTrades]);
+  const pnlByDay = useMemo(() => pnlByWeekday(closedTrades), [closedTrades]);
 
-  const psychologyInsights = useMemo(() => {
-    const psychMap = new Map<string, { total: number; wins: number }>();
-    
-    closedTrades.forEach(t => {
-      if (t.net_pnl === null || t.net_pnl === undefined) return;
-      const psychName = t.psychology_tag?.name || 'Unknown';
-      const isWin = t.net_pnl > 0;
-      
-      const current = psychMap.get(psychName) || { total: 0, wins: 0 };
-      psychMap.set(psychName, {
-        total: current.total + 1,
-        wins: current.wins + (isWin ? 1 : 0)
-      });
-    });
-
-    return Array.from(psychMap.entries()).map(([name, data]) => ({
-      name,
-      total: data.total,
-      winRate: (data.wins / data.total) * 100,
-      wins: data.wins,
-      losses: data.total - data.wins
-    })).sort((a, b) => b.total - a.total);
-  }, [closedTrades]);
+  const psychologyInsights = useMemo(
+    () => groupedWinRates(closedTrades, t => t.psychology_tag?.name || 'Unknown'),
+    [closedTrades]
+  );
 
   if (loading) return <div className="flex items-center justify-center h-64 text-slate-400">Loading portfolio data...</div>;
 

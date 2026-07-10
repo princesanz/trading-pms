@@ -2,10 +2,11 @@ import { useMemo } from 'react';
 import { useCryptoData } from '../../hooks/useCryptoData';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, TrendingDown, Target, Coins, Wallet, Landmark, Banknote, Activity } from 'lucide-react';
-import { format, parseISO, getDay } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { cn } from '../../lib/utils';
 import { useCryptoPrices } from '../../contexts/CryptoPriceProvider';
 import { cryptoDeskSummary } from '../../lib/deskAggregates';
+import { winLossStats, maxDrawdownPct, groupedWinRates, pnlByWeekday, spotInvested } from '../../lib/tradeStats';
 import { PriceStatusBadge } from '../../components/PriceStatusBadge';
 
 export function CryptoDashboard() {
@@ -23,31 +24,18 @@ export function CryptoDashboard() {
 
   const closedTrades = useMemo(() => futuresTrades.filter(t => t.status === 'Closed'), [futuresTrades]);
 
+  // Formula extraction (redesign Phase 0): shared math lives in lib/tradeStats.ts
+  // (Dashboard.tsx had a duplicated copy). Shapes unchanged.
   const stats = useMemo(() => {
-    const wonTrades = closedTrades.filter(t => (t.net_pnl || 0) > 0);
-    const lostTrades = closedTrades.filter(t => (t.net_pnl || 0) < 0);
-    const winRate = closedTrades.length > 0 ? (wonTrades.length / closedTrades.length) * 100 : 0;
-
-    let peak = settings?.modal_awal_crypto || 0;
-    let maxDrawdown = 0;
-    closedTrades.forEach(t => {
-      const balance = t.saldo_akun || 0;
-      if (balance > peak) peak = balance;
-      if (peak > 0) {
-        const dd = ((peak - balance) / peak) * 100;
-        if (dd > maxDrawdown) maxDrawdown = dd;
-      }
-    });
-
-    const spotTotalInvested = spotHoldings.reduce((sum, h) => sum + h.jumlah_koin * h.harga_beli_rata, 0);
-
+    const { winRate, wonCount, lostCount, totalClosed } = winLossStats(closedTrades);
+    const maxDrawdown = maxDrawdownPct(closedTrades, settings?.modal_awal_crypto || 0);
     return {
       winRate, maxDrawdown,
-      totalClosed: closedTrades.length,
+      totalClosed,
       totalOpen: futuresTrades.length - closedTrades.length,
-      wonCount: wonTrades.length,
-      lostCount: lostTrades.length,
-      spotTotalInvested,
+      wonCount,
+      lostCount,
+      spotTotalInvested: spotInvested(spotHoldings),
     };
   }, [closedTrades, futuresTrades, spotHoldings, settings]);
 
@@ -60,31 +48,12 @@ export function CryptoDashboard() {
     })),
   [closedTrades]);
 
-  const pnlByDay = useMemo(() => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const result = days.map(day => ({ day, profit: 0, loss: 0 }));
-    closedTrades.forEach(t => {
-      if (t.net_pnl) {
-        const idx = getDay(parseISO(t.tanggal));
-        if (t.net_pnl > 0) result[idx].profit += t.net_pnl;
-        else result[idx].loss += Math.abs(t.net_pnl);
-      }
-    });
-    return result.filter((_, i) => i >= 1 && i <= 5);
-  }, [closedTrades]);
+  const pnlByDay = useMemo(() => pnlByWeekday(closedTrades), [closedTrades]);
 
-  const psychologyInsights = useMemo(() => {
-    const map = new Map<string, { total: number; wins: number }>();
-    closedTrades.forEach(t => {
-      if (t.net_pnl == null) return;
-      const name = t.psychology_tag?.name || 'Unknown';
-      const cur = map.get(name) || { total: 0, wins: 0 };
-      map.set(name, { total: cur.total + 1, wins: cur.wins + (t.net_pnl > 0 ? 1 : 0) });
-    });
-    return Array.from(map.entries()).map(([name, d]) => ({
-      name, total: d.total, winRate: (d.wins / d.total) * 100, wins: d.wins, losses: d.total - d.wins,
-    })).sort((a, b) => b.total - a.total);
-  }, [closedTrades]);
+  const psychologyInsights = useMemo(
+    () => groupedWinRates(closedTrades, t => t.psychology_tag?.name || 'Unknown'),
+    [closedTrades]
+  );
 
   if (loading) return <div className="flex items-center justify-center h-64 text-slate-400">Loading crypto data...</div>;
 
