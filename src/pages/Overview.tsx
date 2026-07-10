@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { usePortfolioData } from '../hooks/useSupabase';
 import { useCryptoData } from '../hooks/useCryptoData';
 import { useEquitiesData } from '../hooks/useEquitiesData';
@@ -10,7 +10,14 @@ import { forexDeskSummary, cryptoDeskSummary, sahamDeskSummary } from '../lib/de
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { Wallet, TrendingUp, TrendingDown, Banknote, RefreshCw, AlertTriangle, LineChart, Coins, Briefcase } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { GoldLanding } from './public/gold/GoldLanding';
+
+// Lazy fork (redesign Phase 0): the public gold landing — and with it `three`
+// (GoldTerrain) and the public Recharts charts — lives in its own chunk that
+// admin routes never download. A <link rel="modulepreload"> for this chunk is
+// injected into index.html at build time (see vite.config.ts) so the public
+// page pays no discovery roundtrip. The fallback matches GoldLanding's own
+// ink-background loading frame, so the public render is visually unchanged.
+const GoldLanding = lazy(() => import('./public/gold/GoldLanding').then(m => ({ default: m.GoldLanding })));
 
 const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const idr = (n: number) => `Rp${Math.round(n).toLocaleString()}`;
@@ -25,7 +32,11 @@ export function Overview() {
 }
 
 function PublicOverview() {
-  return <GoldLanding />;
+  return (
+    <Suspense fallback={<div className="min-h-dvh bg-ink" />}>
+      <GoldLanding />
+    </Suspense>
+  );
 }
 
 function AdminOverview() {
