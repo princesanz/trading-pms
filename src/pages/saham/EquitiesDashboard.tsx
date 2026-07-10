@@ -5,12 +5,13 @@ import { Briefcase, DollarSign, TrendingUp, TrendingDown, Wallet, Landmark, Bank
 import { format, parseISO } from 'date-fns';
 import { sahamDeskSummary } from '../../lib/deskAggregates';
 import { useSahamPrices } from './StockPortfolio';
+import { PriceStatusBadge } from '../../components/PriceStatusBadge';
 
 export function EquitiesDashboard() {
   const { holdings, dividends, cashFlows, loading } = useEquitiesData();
 
   const activeHoldings = useMemo(() => holdings.filter(h => h.total_lot > 0), [holdings]);
-  const livePrices = useSahamPrices(activeHoldings);
+  const { prices: livePrices, status: priceStatus, lastUpdated: priceUpdated, refresh: refreshPrices } = useSahamPrices(activeHoldings);
 
   const stats = useMemo(() => {
     let totalPortfolioValue = 0;
@@ -66,7 +67,10 @@ export function EquitiesDashboard() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold tracking-tight">Equities Overview</h2>
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-2xl font-bold tracking-tight">Equities Overview</h2>
+        <PriceStatusBadge status={priceStatus} lastUpdated={priceUpdated} onRefresh={refreshPrices} />
+      </div>
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -1,62 +1,82 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useEquitiesData } from '../../hooks/useEquitiesData';
 import { cn } from '../../lib/utils';
 import { Briefcase } from 'lucide-react';
+import { PriceStatusBadge, type PriceStatus } from '../../components/PriceStatusBadge';
 import type { StockHolding } from '../../types';
 
-export function useSahamPrices(activeHoldings: StockHolding[]) {
+export type SahamPriceFeed = {
+  prices: Record<string, { price: number, changePercent: number | null }>;
+  status: PriceStatus;
+  lastUpdated: number | null; // epoch ms of last successful fetch
+  refresh: () => void;
+};
+
+export function useSahamPrices(activeHoldings: StockHolding[]): SahamPriceFeed {
   const [fetchedPrices, setFetchedPrices] = useState<Record<string, { price: number, changePercent: number | null }>>({});
+  // Feed status mirrors the Forex/Crypto providers so the shared PriceStatusBadge behaves
+  // identically across desks: loading → live on success; stale if a later poll fails after we
+  // already had data; error if we never got any.
+  const [status, setStatus] = useState<PriceStatus>('loading');
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const hasDataRef = useRef(false);
+
+  const fetchPrices = useCallback(async () => {
+    // Build a map of Yahoo symbol → original emiten key
+    const symbolToEmiten = new Map<string, string>();
+    activeHoldings.forEach(h => {
+      let yahooSymbol: string;
+      switch (h.market ?? 'IDX') {
+        case 'IDX':
+          yahooSymbol = h.emiten.includes('.') ? h.emiten : `${h.emiten}.JK`;
+          break;
+        case 'CRYPTO':
+          yahooSymbol = h.emiten.includes('-') ? h.emiten : `${h.emiten}-USD`;
+          break;
+        case 'US':
+        default:
+          yahooSymbol = h.emiten;
+          break;
+      }
+      symbolToEmiten.set(yahooSymbol, h.emiten);
+    });
+
+    const uniqueSymbols = Array.from(symbolToEmiten.keys());
+    if (uniqueSymbols.length === 0) return;
+
+    try {
+      const res = await fetch(`/api/market-proxy?symbols=${uniqueSymbols.join(',')}`);
+      if (!res.ok) {
+        setStatus(hasDataRef.current ? 'stale' : 'error');
+        return;
+      }
+      const data = await res.json();
+
+      const newPrices: Record<string, { price: number, changePercent: number | null }> = {};
+      data.forEach((q: any) => {
+        if (q.price != null) {
+          const emiten = symbolToEmiten.get(q.symbol) ?? q.symbol;
+          newPrices[emiten] = { price: q.price, changePercent: q.changePercent };
+        }
+      });
+      setFetchedPrices(prev => ({ ...prev, ...newPrices }));
+      hasDataRef.current = true;
+      setLastUpdated(Date.now());
+      setStatus('live');
+    } catch (err) {
+      console.error('Failed to fetch saham prices', err);
+      setStatus(hasDataRef.current ? 'stale' : 'error');
+    }
+  }, [activeHoldings]);
 
   useEffect(() => {
     if (activeHoldings.length === 0) return;
-
-    const fetchPrices = async () => {
-      // Build a map of Yahoo symbol → original emiten key
-      const symbolToEmiten = new Map<string, string>();
-      activeHoldings.forEach(h => {
-        let yahooSymbol: string;
-        switch (h.market ?? 'IDX') {
-          case 'IDX':
-            yahooSymbol = h.emiten.includes('.') ? h.emiten : `${h.emiten}.JK`;
-            break;
-          case 'CRYPTO':
-            yahooSymbol = h.emiten.includes('-') ? h.emiten : `${h.emiten}-USD`;
-            break;
-          case 'US':
-          default:
-            yahooSymbol = h.emiten;
-            break;
-        }
-        symbolToEmiten.set(yahooSymbol, h.emiten);
-      });
-
-      const uniqueSymbols = Array.from(symbolToEmiten.keys());
-      if (uniqueSymbols.length === 0) return;
-
-      try {
-        const res = await fetch(`/api/market-proxy?symbols=${uniqueSymbols.join(',')}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        
-        const newPrices: Record<string, { price: number, changePercent: number | null }> = {};
-        data.forEach((q: any) => {
-          if (q.price != null) {
-            const emiten = symbolToEmiten.get(q.symbol) ?? q.symbol;
-            newPrices[emiten] = { price: q.price, changePercent: q.changePercent };
-          }
-        });
-        setFetchedPrices(prev => ({ ...prev, ...newPrices }));
-      } catch (err) {
-        console.error('Failed to fetch saham prices', err);
-      }
-    };
-
     fetchPrices();
     const interval = setInterval(fetchPrices, 60000);
     return () => clearInterval(interval);
-  }, [activeHoldings]);
+  }, [activeHoldings, fetchPrices]);
 
-  return fetchedPrices;
+  return { prices: fetchedPrices, status, lastUpdated, refresh: fetchPrices };
 }
 
 export function StockPortfolio() {
@@ -64,7 +84,7 @@ export function StockPortfolio() {
   const [currentPrices, setCurrentPrices] = useState<Record<string, string>>({});
 
   const activeHoldings = useMemo(() => holdings.filter(h => h.total_lot > 0), [holdings]);
-  const fetchedPrices = useSahamPrices(activeHoldings);
+  const { prices: fetchedPrices, status, lastUpdated, refresh } = useSahamPrices(activeHoldings);
 
   const totals = useMemo(() => {
     let totalCost = 0;
@@ -93,13 +113,16 @@ export function StockPortfolio() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Portofolio Aktif</h2>
           <p className="text-slate-400 text-sm mt-1">Current stock holdings with {activeHoldings.length} active position{activeHoldings.length !== 1 ? 's' : ''}.</p>
           <p className="text-slate-500 text-xs mt-1">Holdings are derived from your transactions — to remove a position, delete its transactions in History.</p>
         </div>
-        <Briefcase className="w-6 h-6 text-amber-500" />
+        <div className="flex items-center gap-3 shrink-0">
+          <PriceStatusBadge status={status} lastUpdated={lastUpdated} onRefresh={refresh} />
+          <Briefcase className="w-6 h-6 text-amber-500" />
+        </div>
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
