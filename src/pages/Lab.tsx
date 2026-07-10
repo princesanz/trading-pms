@@ -12,9 +12,121 @@ import { MetricStrip, LivePrice } from '../components/adm/MetricStrip';
 import { DataTable, type Column } from '../components/adm/DataTable';
 import { ChartPanel } from '../components/adm/ChartPanel';
 import { CommandBar, type TradeDesk } from '../components/adm/CommandBar';
-import { useForexPolling, useForexFeedMeta } from '../state/prices';
+import { useForexPolling, useForexFeedMeta, useForexPriceMap } from '../state/prices';
 import { fmtUsd, fmtSignedUsd } from '../design/format';
 import { color } from '../design/tokens';
+import { usePortfolioData } from '../hooks/useSupabase';
+import { useCryptoData } from '../hooks/useCryptoData';
+import { winLossStats, maxDrawdownPct } from '../lib/tradeStats';
+import { forexDeskSummary } from '../lib/deskAggregates';
+
+/* ── tradeStats verification block (Phase 0 blocker check) ─────────────────────
+ * OLD formulas below are VERBATIM copies of the pre-extraction inline code from
+ * Dashboard.tsx (forex) / CryptoDashboard.tsx (crypto) at commit 26bf55d^.
+ * They run against the REAL tables (admin session) next to the new lib. */
+function oldWinLoss(closedTrades: { net_pnl?: number | null }[]) {
+  const wonTrades = closedTrades.filter(t => (t.net_pnl || 0) > 0);
+  const lostTrades = closedTrades.filter(t => (t.net_pnl || 0) < 0);
+  const winRate = closedTrades.length > 0 ? (wonTrades.length / closedTrades.length) * 100 : 0;
+  return { winRate, wonCount: wonTrades.length, lostCount: lostTrades.length };
+}
+function oldMaxDrawdown(closedTrades: { saldo_akun?: number | null }[], seed: number) {
+  let peak = seed;
+  let maxDrawdown = 0;
+  closedTrades.forEach(t => {
+    const balance = t.saldo_akun || 0;
+    if (balance > peak) peak = balance;
+    if (peak > 0) {
+      const drawdown = ((peak - balance) / peak) * 100;
+      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    }
+  });
+  return maxDrawdown;
+}
+
+function TradeStatsVerification() {
+  const forex = usePortfolioData();
+  const crypto = useCryptoData();
+  const forexPrices = useForexPriceMap();
+
+  const rows = useMemo(() => {
+    const fxClosed = forex.trades.filter(t => t.status === 'Closed');
+    const crClosed = crypto.futuresTrades.filter(t => t.status === 'Closed');
+    const mk = (desk: string, closed: { net_pnl?: number | null; saldo_akun?: number | null }[], seed: number) => {
+      const oldS = { ...oldWinLoss(closed), maxDrawdown: oldMaxDrawdown(closed, seed) };
+      const newS = { ...winLossStats(closed), maxDrawdown: maxDrawdownPct(closed, seed) };
+      return {
+        desk,
+        closed: closed.length,
+        oldWinRate: oldS.winRate,
+        newWinRate: newS.winRate,
+        wl: `${newS.wonCount}W/${newS.lostCount}L`,
+        oldDd: oldS.maxDrawdown,
+        newDd: newS.maxDrawdown,
+        match: oldS.winRate === newS.winRate && oldS.maxDrawdown === newS.maxDrawdown && oldS.wonCount === newS.wonCount && oldS.lostCount === newS.lostCount,
+      };
+    };
+    return [
+      mk('Forex', fxClosed, forex.settings?.modal_awal || 0),
+      mk('Crypto futures', crClosed, crypto.settings?.modal_awal_crypto || 0),
+      {
+        desk: 'ALL (fx+cr)',
+        closed: fxClosed.length + crClosed.length,
+        oldWinRate: NaN, newWinRate: NaN, wl: '—', oldDd: NaN, newDd: NaN, match: true,
+      },
+    ];
+  }, [forex.trades, crypto.futuresTrades, forex.settings, crypto.settings]);
+
+  const fxSummary = useMemo(
+    () => forexDeskSummary(forex.cashFlows, forex.trades, forexPrices),
+    [forex.cashFlows, forex.trades, forexPrices]
+  );
+
+  if (forex.loading || crypto.loading) {
+    return <p className="font-adm-data text-adm-xs text-adm-ink-dim">Loading real journal data…</p>;
+  }
+  if (forex.error || crypto.error) {
+    return <p className="font-adm-data text-adm-xs text-adm-down">Fetch error: {forex.error ?? crypto.error} (admin session required — raw tables are RLS-gated)</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="overflow-x-auto rounded-adm border border-adm-line">
+        <table className="w-full font-adm-data text-adm-xs">
+          <thead>
+            <tr className="border-b border-adm-line2 text-left text-adm-micro uppercase text-adm-ink-dim">
+              <th className="px-3 py-2">Desk</th>
+              <th className="px-3 py-2 text-right">Closed</th>
+              <th className="px-3 py-2 text-right">Win rate OLD</th>
+              <th className="px-3 py-2 text-right">Win rate NEW</th>
+              <th className="px-3 py-2 text-right">W/L</th>
+              <th className="px-3 py-2 text-right">MaxDD OLD</th>
+              <th className="px-3 py-2 text-right">MaxDD NEW</th>
+              <th className="px-3 py-2">Old==New</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.desk} className="border-b border-adm-line text-adm-ink-hi">
+                <td className="px-3 py-2 text-adm-ink-mid">{r.desk}</td>
+                <td className="px-3 py-2 text-right">{r.closed}</td>
+                <td className="px-3 py-2 text-right">{Number.isNaN(r.oldWinRate) ? '—' : `${r.oldWinRate.toFixed(4)}%`}</td>
+                <td className="px-3 py-2 text-right">{Number.isNaN(r.newWinRate) ? '—' : `${r.newWinRate.toFixed(4)}%`}</td>
+                <td className="px-3 py-2 text-right">{r.wl}</td>
+                <td className="px-3 py-2 text-right">{Number.isNaN(r.oldDd) ? '—' : `${r.oldDd.toFixed(4)}%`}</td>
+                <td className="px-3 py-2 text-right">{Number.isNaN(r.newDd) ? '—' : `${r.newDd.toFixed(4)}%`}</td>
+                <td className="px-3 py-2"><StatusBadge kind={r.match ? 'win' : 'loss'} label={r.match ? 'MATCH' : 'MISMATCH'} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="font-adm-data text-adm-micro text-adm-ink-dim">
+        FOREX DESK MARK-TO-MARKET: equity {fmtUsd(fxSummary.equity)} · P&L {fmtSignedUsd(fxSummary.pnl)} (includes live uPnL on open positions — expected to drift from any static baseline while the feed is LIVE)
+      </p>
+    </div>
+  );
+}
 
 // Deterministic pseudo-random (no Math.random — keeps snapshots comparable).
 const rng = (i: number) => {
@@ -111,6 +223,12 @@ export function Lab() {
           </button>
         ))}
       </div>
+
+      {/* tradeStats verification — real tables, old-vs-new formulas (Phase 0 blocker) */}
+      <section className="space-y-2">
+        <h2 className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">tradeStats verification — REAL journal, old inline vs extracted lib</h2>
+        <TradeStatsVerification />
+      </section>
 
       {/* MetricStrip: signed P&L tones, write-animated equity, live XAU cell */}
       <section className="space-y-2">
