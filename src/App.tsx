@@ -4,11 +4,13 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
 import { AppLayout } from './components/layout/AppLayout';
 import { CommandBar, type ParsedTrade } from './components/adm/CommandBar';
-import { useForexPolling } from './state/prices';
+import { useForexPolling, useCryptoPolling } from './state/prices';
 import { usePortfolioData } from './hooks/useSupabase';
+import { useCryptoData } from './hooks/useCryptoData';
 import { useAuth } from './contexts/AuthProvider';
 import { insertForexTrade } from './lib/forexTradeInsert';
-import type { Trade } from './types';
+import { insertCryptoFuturesTrade } from './lib/cryptoFuturesInsert';
+import type { Trade, CryptoFuturesTrade } from './types';
 import { CryptoPriceProvider } from './contexts/CryptoPriceProvider';
 import { ForexPriceProvider } from './contexts/ForexPriceProvider';
 import { FxRateProvider } from './contexts/FxRateProvider';
@@ -49,13 +51,58 @@ const SahamExport = lazy(() => import('./pages/saham/SahamExport').then(m => ({ 
 
 const exportFallback = <div className="p-8 text-slate-400">Loading...</div>;
 
-// Wraps the Crypto routes so a single live-price poller mounts once for the whole
-// desk and runs only while a Crypto page is open.
-function CryptoPriceLayout() {
+/**
+ * Crypto desk layout (redesign Phase 3): store-based polling (the context
+ * provider no longer wraps these routes) + the CommandBar on `n`, pre-scoped to
+ * crypto. Submit is OPTIMISTIC through the SAME insertCryptoFuturesTrade path as
+ * the Futures Trade Entry form. The command's size is the coin QTY, so notional
+ * = qty × entry; leverage/margin default to the form's (10x / Isolated) — use
+ * the full form when those matter.
+ */
+function CryptoDeskLayout() {
+  useCryptoPolling();
+  const { session, isAdmin } = useAuth();
+  const { setupTags } = useCryptoData();
+
+  const submit = (t: ParsedTrade) => {
+    const uid = session?.user?.id ?? 'anon';
+    const setup = t.tag ? setupTags.find(s => s.name.toLowerCase() === t.tag!.toLowerCase())?.id : undefined;
+    const posisi: CryptoFuturesTrade['posisi'] = (t.side === 'long' || t.side === 'buy') ? 'Long' : 'Short';
+    const payload = {
+      tanggal: new Date().toISOString().split('T')[0],
+      coin: t.symbol,
+      posisi,
+      notional_usd: t.size * t.entry, // size = coin qty; notional = qty × entry
+      leverage: 10,
+      margin_mode: 'Isolated' as const,
+      harga_entry: t.entry,
+      sl: t.sl,
+      tp: t.tp,
+      funding_rate_paid: 0,
+      setup,
+      catatan: t.tag && !setup ? `#${t.tag}` : undefined,
+    };
+
+    const tempRow = {
+      ...payload,
+      id: `temp-${Date.now()}`,
+      status: 'Open',
+      net_pnl: null,
+      saldo_akun: null,
+    } as unknown as CryptoFuturesTrade;
+    queryClient.setQueryData<CryptoFuturesTrade[]>(['crypto_futures_trades', uid], old => [...(old ?? []), tempRow]);
+
+    void insertCryptoFuturesTrade(payload).then(res => {
+      if (res.error) alert(`Trade rejected by the server: ${res.error.message}`);
+      void queryClient.invalidateQueries({ queryKey: ['crypto_futures_trades'] });
+    });
+  };
+
   return (
-    <CryptoPriceProvider>
+    <>
+      {isAdmin && <CommandBar desk="crypto" onSubmit={submit} />}
       <Outlet />
-    </CryptoPriceProvider>
+    </>
   );
 }
 
@@ -156,8 +203,8 @@ export default function App() {
               <Route path="/journal" element={<TradeHistory />} />
             </Route>
 
-            {/* Crypto desk — read views (live Binance prices) */}
-            <Route element={<CryptoPriceLayout />}>
+            {/* Crypto desk — read views (live Binance prices via the price store) */}
+            <Route element={<CryptoDeskLayout />}>
               <Route path="/crypto" element={<CryptoDashboard />} />
               <Route path="/crypto/spot" element={<SpotHoldings />} />
               <Route path="/crypto/futures/journal" element={<FuturesJournal />} />
