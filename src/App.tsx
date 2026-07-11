@@ -10,6 +10,8 @@ import { useCryptoData } from './hooks/useCryptoData';
 import { useAuth } from './contexts/AuthProvider';
 import { insertForexTrade } from './lib/forexTradeInsert';
 import { insertCryptoFuturesTrade } from './lib/cryptoFuturesInsert';
+import { insertStockTransaction } from './lib/stockTransactionInsert';
+import { useEquitiesData } from './hooks/useEquitiesData';
 import type { Trade, CryptoFuturesTrade } from './types';
 import { CryptoPriceProvider } from './contexts/CryptoPriceProvider';
 import { ForexPriceProvider } from './contexts/ForexPriceProvider';
@@ -167,6 +169,57 @@ function ForexDeskLayout() {
   );
 }
 
+/**
+ * Equities (Saham) desk layout (redesign Phase 4): mounts the CommandBar on `n`,
+ * pre-scoped to saham. Unlike Forex/Crypto there is NO store poller here — saham
+ * prices depend on the current holdings and are fetched per-page by useSahamPrices,
+ * so the layout adds only the command bar.
+ *
+ * Submit runs through the SAME guarded insertStockTransaction path as the entry
+ * form (validate → stock_transactions → linked Trading cash flow →
+ * recalculateHolding). It is NOT optimistic: the desk's visible data is the
+ * DERIVED holding, so a temp row would have to be re-derived — instead the write
+ * runs in the background and the caches invalidate on completion. The command
+ * defaults market to IDX and commission to 0; use the full form when those matter.
+ */
+function EquitiesDeskLayout() {
+  const { isAdmin } = useAuth();
+  const { holdings, cashFlows, analysisTags } = useEquitiesData();
+
+  const submit = (t: ParsedTrade) => {
+    const tag = t.tag ? analysisTags.find(a => a.name.toLowerCase() === t.tag!.toLowerCase()) : undefined;
+    void insertStockTransaction(
+      {
+        tanggal: new Date().toISOString().split('T')[0],
+        emiten: t.symbol,
+        market: 'IDX',
+        tipe: t.side === 'buy' ? 'Buy' : 'Sell',
+        lot: t.size,
+        harga: t.entry,
+        komisi: 0,
+        analysis_tag: tag?.id,
+        catatan: t.tag && !tag ? `#${t.tag}` : undefined,
+      },
+      { holdings, cashFlows }
+    ).then(res => {
+      if (res.error) {
+        alert(`Trade rejected: ${res.error.message}`);
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: ['stock_transactions'] });
+      void queryClient.invalidateQueries({ queryKey: ['cash_flows'] });
+      void queryClient.invalidateQueries({ queryKey: ['stock_holdings'] });
+    });
+  };
+
+  return (
+    <>
+      {isAdmin && <CommandBar desk="saham" onSubmit={submit} />}
+      <Outlet />
+    </>
+  );
+}
+
 // The Overview aggregates all desks, so it needs the FX rate plus BOTH live-price
 // feeds (Forex gold + Crypto Binance) for live unrealized P&L. One nested wrapper.
 function OverviewProviders() {
@@ -210,11 +263,13 @@ export default function App() {
               <Route path="/crypto/futures/journal" element={<FuturesJournal />} />
             </Route>
 
-            {/* Equities desk — read views */}
-            <Route path="/saham" element={<EquitiesDashboard />} />
-            <Route path="/saham/portfolio" element={<StockPortfolio />} />
-            <Route path="/saham/history" element={<StockHistory />} />
-            <Route path="/saham/dividends" element={<DividendTracker />} />
+            {/* Equities desk — read views (holdings-derived; prices per-page) */}
+            <Route element={<EquitiesDeskLayout />}>
+              <Route path="/saham" element={<EquitiesDashboard />} />
+              <Route path="/saham/portfolio" element={<StockPortfolio />} />
+              <Route path="/saham/history" element={<StockHistory />} />
+              <Route path="/saham/dividends" element={<DividendTracker />} />
+            </Route>
 
             {/* Admin-only — write forms, cash flow, exports. These need no live-price
                 providers (they compute from realized data), so they sit outside them. */}
