@@ -52,6 +52,7 @@ export function DataTable<T>({
   density = 'dense',
   onRowClick,
   empty = 'No rows.',
+  minWidth,
   className,
 }: {
   columns: Column<T>[];
@@ -65,6 +66,9 @@ export function DataTable<T>({
   density?: 'dense' | 'compact';
   onRowClick?: (row: T) => void;
   empty?: string;
+  /** Minimum content width in px — tables with many columns set this and the
+   *  table scrolls horizontally inside its own container (page never scrolls x). */
+  minWidth?: number;
   className?: string;
 }) {
   const [sort, setSort] = useState<Sort | null>(defaultSort ?? null);
@@ -159,33 +163,42 @@ export function DataTable<T>({
     </div>
   );
 
+  const body = sorted.length === 0 ? (
+    <>
+      {header}
+      <div className="px-3 py-8 text-center font-adm-data text-adm-xs text-adm-ink-dim">{empty}</div>
+    </>
+  ) : virtual ? (
+    <div ref={scrollRef} style={{ maxHeight }} className="overflow-y-auto">
+      {header}
+      <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+        {virtualizer.getVirtualItems().map(v =>
+          renderRow(sorted[v.index], {
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            transform: `translateY(${v.start}px)`,
+          })
+        )}
+      </div>
+    </div>
+  ) : (
+    <PlainBody />
+  );
+
   return (
-    <div role="table" className={cn('overflow-hidden rounded-adm border border-adm-line bg-adm-bg1', className)}>
-      {sorted.length === 0 ? (
-        <>
-          {header}
-          <div className="px-3 py-8 text-center font-adm-data text-adm-xs text-adm-ink-dim">{empty}</div>
-        </>
-      ) : virtual ? (
-        <div ref={scrollRef} style={{ maxHeight }} className="overflow-y-auto">
-          {header}
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-            {virtualizer.getVirtualItems().map(v =>
-              renderRow(sorted[v.index], {
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                transform: `translateY(${v.start}px)`,
-              })
-            )}
-          </div>
-        </div>
-      ) : (
-        <>
-          {header}
-          {visible.map(row => renderRow(row))}
-          {paginated && (
+    <div role="table" className={cn('overflow-x-auto rounded-adm border border-adm-line bg-adm-bg1', className)}>
+      {minWidth != null ? <div style={{ minWidth }}>{body}</div> : body}
+    </div>
+  );
+
+  function PlainBody() {
+    return (
+      <>
+        {header}
+        {visible.map(row => renderRow(row))}
+        {paginated && (
             <div className="flex items-center justify-between px-3 py-2 font-adm-data text-adm-micro text-adm-ink-dim">
               <span>
                 {safePage * pageSize + 1}–{Math.min((safePage + 1) * pageSize, sorted.length)} OF {sorted.length}
@@ -208,8 +221,7 @@ export function DataTable<T>({
               </span>
             </div>
           )}
-        </>
-      )}
-    </div>
-  );
+      </>
+    );
+  }
 }
