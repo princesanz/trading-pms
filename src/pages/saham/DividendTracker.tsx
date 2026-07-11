@@ -2,11 +2,16 @@ import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { format, parseISO, isAfter, startOfDay } from 'date-fns';
+import { Plus, CalendarClock, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useEquitiesData } from '../../hooks/useEquitiesData';
-import { format, parseISO, isAfter, startOfDay } from 'date-fns';
-import { Plus, CalendarClock, DollarSign, Trash2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthProvider';
+import { PageHeader } from '../../components/adm/PageHeader';
+import { MetricStrip } from '../../components/adm/MetricStrip';
+import { DataTable, type Column } from '../../components/adm/DataTable';
+import { fmtIdr } from '../../design/format';
+import type { Dividend } from '../../types';
 
 const dividendSchema = z.object({
   tanggal_cum_date: z.string().min(1, 'Cum date is required'),
@@ -18,6 +23,9 @@ const dividendSchema = z.object({
 });
 
 type DividendFormValues = z.infer<typeof dividendSchema>;
+
+const inputCls = 'w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none';
+const labelCls = 'mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim';
 
 export function DividendTracker() {
   const { dividends, holdings, refetch } = useEquitiesData();
@@ -82,132 +90,116 @@ export function DividendTracker() {
     }
   };
 
+  const history = useMemo(() => [...dividends].sort((a, b) => Date.parse(b.tanggal_pembayaran) - Date.parse(a.tanggal_pembayaran)), [dividends]);
+
+  const columns: Column<Dividend>[] = [
+    { key: 'emiten', header: 'Emiten', width: 'minmax(72px,1fr)', cell: d => <span className="text-adm-ink-hi">{d.emiten}</span> },
+    { key: 'tanggal_cum_date', header: 'Cum Date', width: '104px', sortValue: d => Date.parse(d.tanggal_cum_date), cell: d => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(d.tanggal_cum_date), 'dd MMM yy')}</span> },
+    { key: 'tanggal_pembayaran', header: 'Payment', width: '104px', sortValue: d => Date.parse(d.tanggal_pembayaran), cell: d => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(d.tanggal_pembayaran), 'dd MMM yy')}</span> },
+    { key: 'jumlah_lembar', header: 'Shares', numeric: true, width: '100px', sortValue: d => d.jumlah_lembar, cell: d => d.jumlah_lembar.toLocaleString('en-US') },
+    { key: 'dividend_per_lembar', header: 'Div/Share', numeric: true, width: '110px', sortValue: d => d.dividend_per_lembar, cell: d => fmtIdr(d.dividend_per_lembar) },
+    { key: 'total_dividend', header: 'Gross', numeric: true, width: '120px', sortValue: d => d.total_dividend, cell: d => fmtIdr(d.total_dividend) },
+    { key: 'pajak', header: 'Tax', numeric: true, width: '100px', sortValue: d => d.pajak || 0, cell: d => d.pajak > 0 ? fmtIdr(d.pajak) : <span className="text-adm-ink-dim">—</span> },
+    { key: 'net_dividend', header: 'Net', numeric: true, width: '120px', sortValue: d => d.net_dividend, cell: d => <span className="text-adm-up">{fmtIdr(d.net_dividend)}</span> },
+    ...(isAdmin ? [{
+      key: 'actions', header: '', width: '48px', align: 'right' as const,
+      cell: (d: Dividend) => (
+        <button onClick={() => handleDelete(d.id)} disabled={deletingId === d.id} className="text-adm-ink-dim hover:text-adm-down disabled:opacity-50" title="Delete dividend" aria-label="Delete dividend">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      ),
+    }] : []),
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Dividend Tracker</h2>
-          <p className="text-slate-400 text-sm mt-1">Track dividend income from your stock holdings.</p>
-        </div>
-        {isAdmin && !showForm && (
-          <button onClick={() => setShowForm(true)} className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors">
-            <Plus className="w-4 h-4" /> Log Dividend
+    <div className="space-y-4">
+      <PageHeader
+        desk="saham"
+        title="Dividend Tracker"
+        sub="income from stock holdings"
+        right={isAdmin && !showForm && (
+          <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-3 py-1 font-adm-data text-adm-micro uppercase text-adm-ink-hi hover:border-adm-desk-saham">
+            <Plus className="h-3.5 w-3.5" /> Log dividend
           </button>
         )}
-      </div>
+      />
 
-      {/* Stat Card */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl flex items-center gap-4">
-          <div className="p-3 bg-slate-950 rounded-lg border border-slate-800"><DollarSign className="text-amber-500" /></div>
-          <div>
-            <p className="text-sm font-medium text-slate-400">Total Dividends Received</p>
-            <p className="text-xl font-bold tracking-tight text-slate-100">Rp{totalDividends.toLocaleString()}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{dividends.length} dividend entries</p>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <MetricStrip
+          className="lg:col-span-2"
+          items={[
+            { label: 'Total dividends', value: totalDividends, format: 'idr', emphasis: true, sub: `${dividends.length} entries` },
+            { label: 'Upcoming cum dates', value: String(upcomingCumDates.length), tone: 'neutral', sub: 'not yet ex-date' },
+          ]}
+        />
         {upcomingCumDates.length > 0 && (
-          <div className="bg-slate-900 border border-amber-500/20 p-5 rounded-xl">
-            <div className="flex items-center gap-2 mb-3">
-              <CalendarClock className="w-5 h-5 text-amber-500" />
-              <h3 className="font-medium text-amber-400 text-sm">Upcoming Cum Dates</h3>
+          <section className="rounded-adm border border-adm-line bg-adm-bg1 p-4">
+            <div className="mb-2 flex items-center gap-1.5">
+              <CalendarClock className="h-3.5 w-3.5 text-adm-desk-saham" />
+              <h3 className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">Upcoming cum dates</h3>
             </div>
-            <ul className="space-y-1.5">
+            <ul className="space-y-1">
               {upcomingCumDates.slice(0, 5).map(d => (
-                <li key={d.id} className="text-xs text-slate-300 flex justify-between">
-                  <span className="font-medium">{d.emiten}</span>
-                  <span className="text-slate-400">{format(parseISO(d.tanggal_cum_date), 'dd MMM yyyy')}</span>
+                <li key={d.id} className="flex justify-between font-adm-data text-adm-xs">
+                  <span className="text-adm-ink-hi">{d.emiten}</span>
+                  <span className="text-adm-ink-mid">{format(parseISO(d.tanggal_cum_date), 'dd MMM yy')}</span>
                 </li>
               ))}
             </ul>
-          </div>
+          </section>
         )}
       </div>
 
       {showForm && (
-        <form onSubmit={handleSubmit(onSubmit)} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-          <h3 className="font-medium text-slate-200">New Dividend Entry</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Emiten</label>
-              <input {...register('emiten')} placeholder="e.g. BBRI" list="div-emitens" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none uppercase" />
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 rounded-adm border border-adm-line bg-adm-bg1 p-4">
+          <h3 className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">New dividend entry</h3>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label className={labelCls}>Emiten</label>
+              <input {...register('emiten')} placeholder="e.g. BBRI" list="div-emitens" className={`${inputCls} uppercase`} />
               <datalist id="div-emitens">{existingEmitens.map(e => <option key={e} value={e} />)}</datalist>
-              {errors.emiten && <span className="text-xs text-red-500">{errors.emiten.message}</span>}
+              {errors.emiten && <span className="font-adm-data text-adm-micro text-adm-down">{errors.emiten.message}</span>}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Cum Date</label>
-              <input type="date" {...register('tanggal_cum_date')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none" />
+            <div>
+              <label className={labelCls}>Cum date</label>
+              <input type="date" {...register('tanggal_cum_date')} className={inputCls} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Payment Date</label>
-              <input type="date" {...register('tanggal_pembayaran')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none" />
+            <div>
+              <label className={labelCls}>Payment date</label>
+              <input type="date" {...register('tanggal_pembayaran')} className={inputCls} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Total Shares</label>
-              <input type="number" step="1" {...register('jumlah_lembar', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none" />
-              {errors.jumlah_lembar && <span className="text-xs text-red-500">{errors.jumlah_lembar.message}</span>}
+            <div>
+              <label className={labelCls}>Total shares</label>
+              <input type="number" step="1" {...register('jumlah_lembar', { valueAsNumber: true })} className={inputCls} />
+              {errors.jumlah_lembar && <span className="font-adm-data text-adm-micro text-adm-down">{errors.jumlah_lembar.message}</span>}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Dividend per Share (Rp)</label>
-              <input type="number" step="0.01" {...register('dividend_per_lembar', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none" />
-              {errors.dividend_per_lembar && <span className="text-xs text-red-500">{errors.dividend_per_lembar.message}</span>}
+            <div>
+              <label className={labelCls}>Dividend per share (Rp)</label>
+              <input type="number" step="0.01" {...register('dividend_per_lembar', { valueAsNumber: true })} className={inputCls} />
+              {errors.dividend_per_lembar && <span className="font-adm-data text-adm-micro text-adm-down">{errors.dividend_per_lembar.message}</span>}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Tax (Rp)</label>
-              <input type="number" step="1" {...register('pajak', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none" />
+            <div>
+              <label className={labelCls}>Tax (Rp)</label>
+              <input type="number" step="1" {...register('pajak', { valueAsNumber: true })} className={inputCls} />
             </div>
           </div>
-          <div className="flex gap-2 justify-end pt-2">
-            <button type="button" onClick={() => { setShowForm(false); reset(); }} className="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
-            <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 bg-amber-600 hover:bg-amber-500 text-white px-5 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50">
-              {isSubmitting ? 'Saving...' : 'Add Dividend'}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => { setShowForm(false); reset(); }} className="rounded-adm-sm px-3 py-1.5 font-adm-data text-adm-micro uppercase text-adm-ink-dim hover:text-adm-ink-mid">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-4 py-1.5 font-adm-data text-adm-micro uppercase text-adm-ink-hi hover:border-adm-desk-saham disabled:opacity-40">
+              {isSubmitting ? 'Saving…' : 'Add dividend'}
             </button>
           </div>
         </form>
       )}
 
-      {/* Dividend History */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-            <tr>
-              <th className="px-4 py-3">Emiten</th>
-              <th className="px-4 py-3">Cum Date</th>
-              <th className="px-4 py-3">Payment Date</th>
-              <th className="px-4 py-3">Shares</th>
-              <th className="px-4 py-3">Div/Share</th>
-              <th className="px-4 py-3">Gross</th>
-              <th className="px-4 py-3">Tax</th>
-              <th className="px-4 py-3 text-right">Net Dividend</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {dividends.map(d => (
-              <tr key={d.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                <td className="px-4 py-3 font-medium text-slate-200">{d.emiten}</td>
-                <td className="px-4 py-3 text-slate-300">{format(parseISO(d.tanggal_cum_date), 'dd MMM yyyy')}</td>
-                <td className="px-4 py-3 text-slate-300">{format(parseISO(d.tanggal_pembayaran), 'dd MMM yyyy')}</td>
-                <td className="px-4 py-3 text-slate-300">{d.jumlah_lembar.toLocaleString()}</td>
-                <td className="px-4 py-3 text-slate-300">Rp{d.dividend_per_lembar.toLocaleString()}</td>
-                <td className="px-4 py-3 text-slate-300">Rp{d.total_dividend.toLocaleString()}</td>
-                <td className="px-4 py-3 text-slate-400">{d.pajak > 0 ? `Rp${d.pajak.toLocaleString()}` : '—'}</td>
-                <td className="px-4 py-3 text-right font-medium text-emerald-400">Rp{d.net_dividend.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right">
-                  {isAdmin && (
-                    <button onClick={() => handleDelete(d.id)} disabled={deletingId === d.id} className="text-slate-400 hover:text-rose-400 disabled:opacity-50" title="Delete dividend">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {dividends.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-500">No dividend entries yet.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        columns={columns}
+        rows={history}
+        rowKey={d => d.id}
+        defaultSort={{ key: 'tanggal_pembayaran', dir: 'desc' }}
+        minWidth={900}
+        empty="No dividend entries yet."
+      />
     </div>
   );
 }
