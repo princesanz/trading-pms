@@ -3,26 +3,32 @@ import { usePortfolioData } from '../hooks/useSupabase';
 import { format, parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
-import { Check, X, Trash2, RefreshCw } from 'lucide-react';
+import { RefreshCw, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthProvider';
 import { recalculateBalances } from '../lib/forexBalances';
-import { HScrollTable } from '../components/HScrollTable';
 import { formatTradeId, formatUsd, formatPct, formatRr, formatNum, formatSession } from '../lib/tradeFormat';
 import { sortClosedDesc } from '../lib/sortTrades';
+import { PageHeader } from '../components/adm/PageHeader';
+import { StatusBadge } from '../components/adm/StatusBadge';
+import { DataTable, type Column } from '../components/adm/DataTable';
+import { fmtSignedUsd, fmtPrice } from '../design/format';
+import type { Trade } from '../types';
+
+const inputCls = 'w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none';
+const labelCls = 'mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim';
 
 export function TradeHistory() {
   const { trades, loading, error: fetchError, refetch } = usePortfolioData();
   const { isAdmin } = useAuth();
   const [filterInstrument, setFilterInstrument] = useState('');
-  const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
+  const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
   const [editPnl, setEditPnl] = useState<string>('');
   const [editExit, setEditExit] = useState<string>('');
   const [editDate, setEditDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRecalculating, setIsRecalculating] = useState(false);
-  const [page, setPage] = useState(1);
 
-  const resetEdit = () => { setEditingTradeId(null); setEditPnl(''); setEditExit(''); setEditDate(new Date().toISOString().split('T')[0]); };
+  const resetEdit = () => { setEditingTrade(null); setEditPnl(''); setEditExit(''); setEditDate(new Date().toISOString().split('T')[0]); };
 
   // Closed history only — open positions live in the "Open Positions" view.
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'Closed'), [trades]);
@@ -45,13 +51,6 @@ export function TradeHistory() {
       fallbackTs: t.created_at,
     }));
   }, [closedTrades, filterInstrument]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredTrades.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pagedTrades = useMemo(
-    () => filteredTrades.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [filteredTrades, safePage]
-  );
 
   const handleEditTrade = async (tradeId: string) => {
     const pnlValue = parseFloat(editPnl);
@@ -114,267 +113,151 @@ export function TradeHistory() {
     }
   };
 
-  if (loading) return <div className="p-8 text-slate-400">Loading journal...</div>;
+  const columns: Column<Trade>[] = [
+    { key: 'id', header: 'ID', width: '84px', sortValue: t => t.trade_number ?? null, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-dim">{formatTradeId(t.trade_number)}</span> },
+    { key: 'tanggal', header: 'Opened', width: '100px', sortValue: t => t.tanggal, cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yy')}</span> },
+    { key: 'instrumen', header: 'Instrument', width: '100px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.instrumen}</span> },
+    { key: 'lot', header: 'Lot', numeric: true, width: '60px', cell: t => (t.lot != null ? t.lot.toFixed(2) : '—') },
+    { key: 'posisi', header: 'Side', width: '76px', cell: t => <StatusBadge kind={t.posisi === 'Buy' ? 'long' : 'short'} label={t.posisi.toUpperCase()} /> },
+    { key: 'harga_entry', header: 'Entry', numeric: true, width: '86px', cell: t => fmtPrice(t.harga_entry ?? 0) },
+    {
+      key: 'harga_exit', header: 'Exit', numeric: true, width: '86px',
+      cell: t => t.harga_exit == null
+        ? <span className="text-adm-ink-dim">—</span>
+        : <span className={t.net_pnl != null && t.net_pnl > 0 ? 'text-adm-up' : t.net_pnl != null && t.net_pnl < 0 ? 'text-adm-down' : undefined}>{fmtPrice(t.harga_exit)}</span>,
+    },
+    { key: 'sl', header: 'SL', numeric: true, width: '80px', cell: t => (t.sl ? <span className="text-adm-down">{fmtPrice(t.sl)}</span> : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'tp', header: 'TP', numeric: true, width: '80px', cell: t => (t.tp ? <span className="text-adm-up">{fmtPrice(t.tp)}</span> : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'session', header: 'Session', width: '116px', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{formatSession(t.session)}</span> },
+    { key: 'tags', header: 'Setup · Psych', width: 'minmax(120px,1fr)', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{t.setup_tag?.name || '—'} · {t.psychology_tag?.name || '—'}</span> },
+    { key: 'tanggal_tutup', header: 'Closed', width: '100px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yy') : '—'}</span> },
+    { key: 'point_value', header: 'Pt val', numeric: true, width: '70px', cell: t => formatNum(t.point_value) },
+    { key: 'risk_usd', header: 'Risk $', numeric: true, width: '86px', sortValue: t => t.risk_usd ?? null, cell: t => formatUsd(t.risk_usd) },
+    { key: 'risk_pct', header: 'Risk %', numeric: true, width: '76px', cell: t => formatPct(t.risk_pct) },
+    { key: 'rr_planned', header: 'R:R plan', numeric: true, width: '80px', cell: t => formatRr(t.rr_planned) },
+    {
+      key: 'rr_actual', header: 'R:R act', numeric: true, width: '80px', sortValue: t => t.rr_actual ?? null,
+      cell: t => <span className={t.rr_actual == null ? 'text-adm-ink-dim' : t.rr_actual >= 0 ? 'text-adm-up' : 'text-adm-down'}>{formatRr(t.rr_actual)}</span>,
+    },
+    {
+      key: 'net_pnl', header: 'Net P&L', numeric: true, width: '104px', sortValue: t => t.net_pnl ?? null,
+      cell: t => t.net_pnl == null
+        ? <span className="text-adm-ink-dim">—</span>
+        : <span className={t.net_pnl > 0 ? 'text-adm-up' : t.net_pnl < 0 ? 'text-adm-down' : 'text-adm-ink-mid'}>{fmtSignedUsd(t.net_pnl)}</span>,
+    },
+    { key: 'persen_profit_loss', header: 'Gain %', numeric: true, width: '80px', sortValue: t => t.persen_profit_loss ?? null, cell: t => (t.persen_profit_loss != null ? `${t.persen_profit_loss.toFixed(2)}%` : '—') },
+    {
+      key: 'actions', header: '', width: '110px', align: 'right',
+      cell: t => isAdmin ? (
+        <span className="flex items-center justify-end gap-1">
+          <button
+            onClick={() => { setEditingTrade(t); setEditPnl(t.net_pnl?.toString() || ''); setEditExit(t.harga_exit?.toString() || ''); setEditDate(t.tanggal_tutup || new Date().toISOString().split('T')[0]); }}
+            className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-ink-mid hover:bg-adm-bg2"
+            title="Edit PnL / exit"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => handleDeleteTrade(t.id)}
+            disabled={isProcessing}
+            className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-down hover:bg-adm-bg2 disabled:opacity-40"
+            title="Delete trade"
+          >
+            Del
+          </button>
+        </span>
+      ) : null,
+    },
+  ];
+
+  if (loading) return <div className="flex h-64 items-center justify-center font-adm-data text-adm-sm text-adm-ink-dim">Loading journal…</div>;
 
   return (
-    <div className="space-y-6">
-      {fetchError && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm">
-          Failed to load journal data: {fetchError} — the list below may be stale.{' '}
-          <button onClick={() => refetch()} className="underline hover:text-rose-300">Retry</button>
-        </div>
-      )}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Trade Journal</h2>
-          <p className="text-sm text-slate-500">Closed trade history — realized P&amp;L</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {isAdmin && (
-            <button
-              onClick={handleRecalculate}
-              disabled={isRecalculating}
-              title="Re-derive every closed trade's account balance from cash flows + P&L"
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+    <div className="space-y-4">
+      <PageHeader
+        desk="forex"
+        title="Trade Journal"
+        sub="closed trade history · realized P&L"
+        right={
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={handleRecalculate}
+                disabled={isRecalculating}
+                title="Re-derive every closed trade's account balance from cash flows + P&L"
+                className="flex items-center gap-1.5 rounded-adm-sm border border-adm-line px-2 py-1 font-adm-data text-adm-micro uppercase text-adm-ink-mid hover:bg-adm-bg2 disabled:opacity-40"
+              >
+                <RefreshCw className={cn('h-3 w-3', isRecalculating && 'animate-spin')} />
+                {isRecalculating ? 'Recalculating…' : 'Recalculate'}
+              </button>
+            )}
+            <select
+              value={filterInstrument}
+              onChange={e => setFilterInstrument(e.target.value)}
+              className="rounded-adm-sm border border-adm-line bg-adm-bg1 px-2 py-1 font-adm-data text-adm-xs text-adm-ink-mid focus:border-adm-line2 focus:outline-none"
             >
-              <RefreshCw className={cn('w-4 h-4', isRecalculating && 'animate-spin')} />
-              {isRecalculating ? 'Recalculating...' : 'Recalculate Balances'}
-            </button>
-          )}
+              <option value="">All instruments</option>
+              {instruments.map(inst => <option key={inst} value={inst}>{inst}</option>)}
+            </select>
+          </div>
+        }
+      />
 
-          <select
-            value={filterInstrument}
-            onChange={(e) => { setFilterInstrument(e.target.value); setPage(1); }}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
-          >
-            <option value="">All Instruments</option>
-            {instruments.map(inst => (
-              <option key={inst} value={inst}>{inst}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {fetchError && (
+        <p className="rounded-adm border border-adm-down/40 bg-adm-down-fill px-3 py-2 font-adm-data text-adm-xs text-adm-down">
+          Failed to load journal data: {fetchError} — the list below may be stale.{' '}
+          <button onClick={() => refetch()} className="underline hover:text-adm-ink-hi">Retry</button>
+        </p>
+      )}
 
-      <HScrollTable className="bg-slate-900 border border-slate-800 rounded-xl">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-            <tr>
-              <th className="px-4 py-3">ID</th>
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Instrument</th>
-              <th className="px-4 py-3 text-right">Lot</th>
-              <th className="px-4 py-3">Pos</th>
-              <th className="px-4 py-3">Entry</th>
-              <th className="px-4 py-3">Exit</th>
-              <th className="px-4 py-3">SL</th>
-              <th className="px-4 py-3">TP</th>
-              <th className="px-4 py-3">Session</th>
-              <th className="px-4 py-3">Setup / Psych</th>
-              <th className="px-4 py-3">Closed</th>
-              <th className="px-4 py-3 text-right">Pt Val</th>
-              <th className="px-4 py-3 text-right">Risk $</th>
-              <th className="px-4 py-3 text-right">Risk %</th>
-              <th className="px-4 py-3 text-right">R:R Plan</th>
-              <th className="px-4 py-3 text-right">R:R Act</th>
-              <th className="px-4 py-3 text-right">Net PnL</th>
-              <th className="px-4 py-3 text-right">Gain %</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pagedTrades.map((trade) => (
-              <tr key={trade.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">{formatTradeId(trade.trade_number)}</td>
-                <td className="px-4 py-3 text-slate-300">{format(parseISO(trade.tanggal), 'dd MMM yyyy')}</td>
-                <td className="px-4 py-3 font-medium text-slate-200">{trade.instrumen}</td>
-                <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{trade.lot != null ? trade.lot.toFixed(2) : '-'}</td>
-                <td className="px-4 py-3">
-                  <span className={cn(
-                    "px-2 py-0.5 rounded text-xs font-medium",
-                    trade.posisi === 'Buy' ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
-                  )}>
-                    {trade.posisi}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-slate-300">{trade.harga_entry}</td>
-                <td className={cn(
-                  "px-4 py-3",
-                  trade.harga_exit == null ? "text-slate-300"
-                    : trade.net_pnl != null && trade.net_pnl > 0 ? "text-emerald-400"
-                    : trade.net_pnl != null && trade.net_pnl < 0 ? "text-rose-400"
-                    : "text-slate-300"
-                )}>{trade.harga_exit != null ? trade.harga_exit : <span className="text-slate-500">—</span>}</td>
-                <td className={cn("px-4 py-3", trade.sl ? "text-rose-400" : "text-slate-400")}>{trade.sl || '-'}</td>
-                <td className={cn("px-4 py-3", trade.tp ? "text-emerald-400" : "text-slate-400")}>{trade.tp || '-'}</td>
-                <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">{formatSession(trade.session)}</td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs text-blue-400">{trade.setup_tag?.name || '-'}</span>
-                    <span className="text-xs text-purple-400">{trade.psychology_tag?.name || '-'}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-slate-400">
-                  {trade.tanggal_tutup ? format(parseISO(trade.tanggal_tutup), 'dd MMM yyyy') : <span className="text-slate-500">—</span>}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatNum(trade.point_value)}</td>
-                <td className="px-4 py-3 text-right font-semibold text-slate-200 tabular-nums">{formatUsd(trade.risk_usd)}</td>
-                <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatPct(trade.risk_pct)}</td>
-                <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatRr(trade.rr_planned)}</td>
-                <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                  <span className={cn(
-                    trade.rr_actual == null ? "text-slate-500" : trade.rr_actual >= 0 ? "text-emerald-400" : "text-rose-400"
-                  )}>
-                    {formatRr(trade.rr_actual)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {editingTradeId === trade.id ? (
-                    <div className="flex flex-col items-end gap-1">
-                      <input
-                        type="number"
-                        value={editPnl}
-                        onChange={(e) => setEditPnl(e.target.value)}
-                        className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-emerald-500"
-                        placeholder="Net PnL"
-                        autoFocus
-                      />
-                      <input
-                        type="number"
-                        value={editExit}
-                        onChange={(e) => setEditExit(e.target.value)}
-                        className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-emerald-500"
-                        placeholder="Exit price (opt)"
-                      />
-                      <input
-                        type="date"
-                        value={editDate}
-                        onChange={(e) => setEditDate(e.target.value)}
-                        className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-emerald-500"
-                        title="Close date"
-                      />
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => handleEditTrade(trade.id)}
-                          disabled={isProcessing}
-                          className="p-1 bg-emerald-600 rounded text-white hover:bg-emerald-500 disabled:opacity-50"
-                          title="Confirm"
-                        >
-                          <Check className="w-3 h-3" />
-                        </button>
-                        <button
-                          onClick={resetEdit}
-                          className="p-1 bg-slate-700 rounded text-white hover:bg-slate-600"
-                          title="Cancel"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <span className={cn(
-                      "font-medium",
-                      trade.net_pnl != null && trade.net_pnl > 0 ? "text-emerald-400" :
-                      trade.net_pnl != null && trade.net_pnl < 0 ? "text-rose-400" :
-                      trade.net_pnl != null && trade.net_pnl === 0 ? "text-slate-400" :
-                      "text-slate-500"
-                    )}>
-                      {trade.net_pnl != null ? `$${trade.net_pnl.toLocaleString()}` : '-'}
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-400">
-                  {trade.persen_profit_loss != null ? `${trade.persen_profit_loss.toFixed(2)}%` : '-'}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {isAdmin && editingTradeId !== trade.id && (
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => { setEditingTradeId(trade.id); setEditPnl(trade.net_pnl?.toString() || ''); setEditExit(trade.harga_exit?.toString() || ''); setEditDate(trade.tanggal_tutup || new Date().toISOString().split('T')[0]); }}
-                        className="text-slate-500 hover:text-slate-300 text-xs"
-                        title="Edit PnL / exit"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTrade(trade.id)}
-                        disabled={isProcessing}
-                        className="text-slate-400 hover:text-rose-400 disabled:opacity-50"
-                        title="Delete trade"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {filteredTrades.length === 0 && (
-              <tr>
-                <td colSpan={20} className="px-4 py-8 text-center text-slate-500">No closed trades in the journal yet.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </HScrollTable>
+      {/* Pre-sorted by the shared comparator; header clicks re-sort by column.
+          Virtualizes automatically past 100 rows, paginates past 50. */}
+      <DataTable columns={columns} rows={filteredTrades} rowKey={t => t.id} minWidth={1700} empty="No closed trades in the journal yet." />
 
-      {totalPages > 1 && (
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <span className="text-xs uppercase tracking-wider text-slate-500">
-            Page {safePage} of {totalPages}
-          </span>
-          <div className="flex flex-wrap items-center gap-1">
-            <PageBtn label="«" title="First page" disabled={safePage === 1} onClick={() => setPage(1)} />
-            <PageBtn label="‹" title="Previous page" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))} />
-            {pageList(safePage, totalPages).map((p, i) =>
-              p === '…' ? (
-                <span key={`e${i}`} className="text-xs text-slate-500 px-1.5 select-none">…</span>
-              ) : (
-                <PageBtn key={p} label={String(p)} active={p === safePage} onClick={() => setPage(p)} />
-              )
-            )}
-            <PageBtn label="›" title="Next page" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} />
-            <PageBtn label="»" title="Last page" disabled={safePage === totalPages} onClick={() => setPage(totalPages)} />
+      {/* Edit drawer — same fields + mutation path as the old inline form. */}
+      {editingTrade && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-[rgba(10,12,14,0.85)]" onClick={() => !isProcessing && resetEdit()}>
+          <div className="h-full w-full max-w-sm overflow-y-auto border-l border-adm-line2 bg-adm-bg1 p-5" onClick={e => e.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">Edit closed trade</p>
+                <h3 className="font-adm-ui text-adm-lg font-medium text-adm-ink-hi">
+                  {editingTrade.instrumen} · {formatTradeId(editingTrade.trade_number)}
+                </h3>
+              </div>
+              <button onClick={resetEdit} className="text-adm-ink-dim hover:text-adm-ink-hi" title="Cancel" aria-label="Cancel">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className={labelCls}>Net P&L (USD)</label>
+                <input type="number" value={editPnl} onChange={e => setEditPnl(e.target.value)} className={inputCls} placeholder="e.g. 120.50 or -45" autoFocus />
+              </div>
+              <div>
+                <label className={labelCls}>Exit price (optional)</label>
+                <input type="number" value={editExit} onChange={e => setEditExit(e.target.value)} className={inputCls} placeholder="Leave blank to skip" />
+              </div>
+              <div>
+                <label className={labelCls}>Close date</label>
+                <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} className={inputCls} />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => handleEditTrade(editingTrade.id)}
+                  disabled={isProcessing}
+                  className="flex-1 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-hi hover:border-adm-up disabled:opacity-40"
+                >
+                  {isProcessing ? 'Saving…' : 'Save changes'}
+                </button>
+                <button onClick={resetEdit} disabled={isProcessing} className="rounded-adm-sm border border-adm-line px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-mid hover:bg-adm-bg2">
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-const PAGE_SIZE = 10;
-
-/** Windowed page-number list with ellipsis gaps, e.g. total=20, current=5 → [1,'…',4,5,6,'…',20]. */
-function pageList(current: number, total: number): (number | '…')[] {
-  if (total <= 1) return [1];
-  const range: number[] = [];
-  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) range.push(i);
-  const pages: (number | '…')[] = [1];
-  if (range.length && range[0] > 2) pages.push('…');
-  pages.push(...range);
-  if (range.length && range[range.length - 1] < total - 1) pages.push('…');
-  pages.push(total);
-  return pages;
-}
-
-/** Pagination button — internal dark theme (active = emerald accent, else slate/bordered). */
-function PageBtn({
-  label, onClick, active = false, disabled = false, title,
-}: { label: string; onClick: () => void; active?: boolean; disabled?: boolean; title?: string }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      aria-current={active ? 'page' : undefined}
-      title={title}
-      className={cn(
-        "min-w-[32px] px-2.5 py-1.5 rounded-lg border text-sm font-medium transition-colors focus:ring-1 focus:ring-emerald-500 outline-none disabled:opacity-40 disabled:cursor-not-allowed",
-        active
-          ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
-          : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-slate-100"
-      )}
-    >
-      {label}
-    </button>
   );
 }
