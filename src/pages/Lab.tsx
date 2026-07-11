@@ -5,7 +5,8 @@
  *
  * ▸▸ MUST BE DELETED (route + this file) before Phase 1 ships. ◂◂
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../lib/supabase';
 import { PageHeader, type DeskId } from '../components/adm/PageHeader';
 import { StatusBadge, type BadgeKind } from '../components/adm/StatusBadge';
 import { MetricStrip, LivePrice } from '../components/adm/MetricStrip';
@@ -42,6 +43,45 @@ function oldMaxDrawdown(closedTrades: { saldo_akun?: number | null }[], seed: nu
     }
   });
   return maxDrawdown;
+}
+
+/* Localizes the 7-vs-27 gap under the CURRENT session: a server-side exact
+ * count of trades (all + status='Closed') vs the row count the hook actually
+ * fetched. If serverAll == 27 but fetched < 27 → a fetch-layer cap; if
+ * serverAll == 7 → RLS is capping the authenticated read (deployed policy ≠
+ * repo's all-or-nothing admin_full_access); if all three are 27 → the admin
+ * path is sound and the earlier "7" was purely the anon+public-view path. */
+function RawCounts({ fetched }: { fetched: number }) {
+  const [serverAll, setServerAll] = useState<number | null | undefined>(undefined);
+  const [serverClosed, setServerClosed] = useState<number | null | undefined>(undefined);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const all = await supabase.from('trades').select('*', { count: 'exact', head: true });
+      const closed = await supabase.from('trades').select('*', { count: 'exact', head: true }).eq('status', 'Closed');
+      if (!alive) return;
+      if (all.error || closed.error) setErr(all.error?.message ?? closed.error?.message ?? 'error');
+      setServerAll(all.count);
+      setServerClosed(closed.count);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const cell = (v: number | null | undefined) => (v === undefined ? '…' : v === null ? '—' : String(v));
+  return (
+    <div className="rounded-adm border border-adm-line2 bg-adm-bg1 p-3">
+      <p className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">raw row-count probe (current session)</p>
+      <div className="mt-2 flex flex-wrap gap-6 font-adm-data text-adm-sm text-adm-ink-hi">
+        <span>trades fetched by hook: <b>{fetched}</b></span>
+        <span>server COUNT(*) trades: <b>{cell(serverAll)}</b></span>
+        <span>server COUNT status='Closed': <b>{cell(serverClosed)}</b></span>
+      </div>
+      {err && <p className="mt-1 font-adm-data text-adm-micro text-adm-down">probe error: {err}</p>}
+      <p className="mt-1 font-adm-data text-adm-micro text-adm-ink-dim">expect all three = 27 under admin. fetched &lt; server ⇒ fetch cap; server=7 ⇒ RLS cap.</p>
+    </div>
+  );
 }
 
 function TradeStatsVerification() {
@@ -91,6 +131,7 @@ function TradeStatsVerification() {
 
   return (
     <div className="space-y-2">
+      <RawCounts fetched={forex.trades.length} />
       <div className="overflow-x-auto rounded-adm border border-adm-line">
         <table className="w-full font-adm-data text-adm-xs">
           <thead>
