@@ -1,9 +1,14 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { useEquitiesData } from '../../hooks/useEquitiesData';
 import { cn } from '../../lib/utils';
-import { Briefcase } from 'lucide-react';
-import { PriceStatusBadge, type PriceStatus } from '../../components/PriceStatusBadge';
+import type { PriceStatus } from '../../components/PriceStatusBadge';
 import type { StockHolding } from '../../types';
+import { PageHeader } from '../../components/adm/PageHeader';
+import { StatusBadge, type BadgeKind } from '../../components/adm/StatusBadge';
+import { MetricStrip } from '../../components/adm/MetricStrip';
+import { DataTable, type Column } from '../../components/adm/DataTable';
+import { fmtIdr, fmtSignedIdr, fmtSignedPct } from '../../design/format';
 
 export type SahamPriceFeed = {
   prices: Record<string, { price: number, changePercent: number | null }>;
@@ -79,12 +84,22 @@ export function useSahamPrices(activeHoldings: StockHolding[]): SahamPriceFeed {
   return { prices: fetchedPrices, status, lastUpdated, refresh: fetchPrices };
 }
 
+const FEED_KIND: Record<string, BadgeKind> = { live: 'live', stale: 'stale', error: 'error', loading: 'loading' };
+
 export function StockPortfolio() {
   const { holdings } = useEquitiesData();
   const [currentPrices, setCurrentPrices] = useState<Record<string, string>>({});
 
   const activeHoldings = useMemo(() => holdings.filter(h => h.total_lot > 0), [holdings]);
   const { prices: fetchedPrices, status, lastUpdated, refresh } = useSahamPrices(activeHoldings);
+
+  // Resolve a holding's current price: a non-empty manual override wins, else the
+  // live feed. Returns NaN when neither is available (unpriced).
+  const priceOf = useCallback((h: StockHolding): number => {
+    const manual = currentPrices[h.emiten];
+    const hasOverride = manual !== undefined && manual !== '';
+    return hasOverride ? parseFloat(manual) : (fetchedPrices[h.emiten]?.price || NaN);
+  }, [currentPrices, fetchedPrices]);
 
   const totals = useMemo(() => {
     let totalCost = 0;
@@ -93,10 +108,7 @@ export function StockPortfolio() {
 
     activeHoldings.forEach(h => {
       totalCost += h.total_cost_basis;
-      const manual = currentPrices[h.emiten];
-      const hasOverride = manual !== undefined && manual !== '';
-      const cp = hasOverride ? parseFloat(manual) : (fetchedPrices[h.emiten]?.price || NaN);
-      
+      const cp = priceOf(h);
       if (!isNaN(cp) && cp > 0) {
         totalCurrentValue += h.total_lot * 100 * cp;
       } else {
@@ -104,132 +116,120 @@ export function StockPortfolio() {
       }
     });
 
+    const priced = allPriced && activeHoldings.length > 0;
     return {
       totalCost,
-      totalCurrentValue: allPriced && activeHoldings.length > 0 ? totalCurrentValue : null,
-      totalPnl: allPriced && activeHoldings.length > 0 ? totalCurrentValue - totalCost : null,
+      totalCurrentValue: priced ? totalCurrentValue : null,
+      totalPnl: priced ? totalCurrentValue - totalCost : null,
     };
-  }, [activeHoldings, currentPrices, fetchedPrices]);
+  }, [activeHoldings, priceOf]);
+
+  const feedSecs = lastUpdated != null ? Math.max(0, Math.round((Date.now() - lastUpdated) / 1000)) : null;
+
+  const columns: Column<StockHolding>[] = [
+    { key: 'emiten', header: 'Emiten', width: 'minmax(80px,1fr)', cell: h => <span className="font-adm-ui text-adm-ink-hi">{h.emiten}</span> },
+    { key: 'lot', header: 'Lot', numeric: true, width: '70px', sortValue: h => h.total_lot, cell: h => String(h.total_lot) },
+    { key: 'shares', header: 'Shares', numeric: true, width: '90px', sortValue: h => h.total_lot * 100, cell: h => (h.total_lot * 100).toLocaleString('en-US') },
+    { key: 'avg', header: 'Avg Price', numeric: true, width: '110px', sortValue: h => h.average_price, cell: h => fmtIdr(h.average_price) },
+    { key: 'cost', header: 'Cost Basis', numeric: true, width: '130px', sortValue: h => h.total_cost_basis, cell: h => fmtIdr(h.total_cost_basis) },
+    {
+      key: 'price', header: 'Current Price', width: '190px', align: 'right', sortValue: h => priceOf(h),
+      cell: h => {
+        const fetched = fetchedPrices[h.emiten];
+        const manual = currentPrices[h.emiten];
+        const hasOverride = manual !== undefined && manual !== '';
+        return (
+          <div className="flex flex-col items-end gap-1 py-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                step="1"
+                placeholder={fetched?.price ? String(fetched.price) : 'price'}
+                value={manual || ''}
+                onChange={e => setCurrentPrices(prev => ({ ...prev, [h.emiten]: e.target.value }))}
+                className="w-24 rounded-adm-sm border border-adm-line bg-adm-bg0 px-2 py-1 text-right font-adm-data text-adm-xs text-adm-ink-hi outline-none focus:border-adm-line2"
+              />
+              {hasOverride ? (
+                <StatusBadge kind="neutral" label="MANUAL" />
+              ) : fetched ? (
+                <StatusBadge kind="live" />
+              ) : null}
+            </div>
+            {!hasOverride && fetched?.changePercent != null && (
+              <span className={cn('font-adm-data text-adm-micro', fetched.changePercent >= 0 ? 'text-adm-up' : 'text-adm-down')}>
+                {fmtSignedPct(fetched.changePercent)}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'value', header: 'Current Value', numeric: true, width: '140px',
+      sortValue: h => { const cp = priceOf(h); return !isNaN(cp) && cp > 0 ? h.total_lot * 100 * cp : null; },
+      cell: h => { const cp = priceOf(h); return !isNaN(cp) && cp > 0 ? fmtIdr(h.total_lot * 100 * cp) : <span className="text-adm-ink-dim">—</span>; },
+    },
+    {
+      key: 'pnl', header: 'Floating P&L', numeric: true, width: '160px',
+      sortValue: h => { const cp = priceOf(h); return !isNaN(cp) && cp > 0 ? h.total_lot * 100 * cp - h.total_cost_basis : null; },
+      cell: h => {
+        const cp = priceOf(h);
+        if (isNaN(cp) || cp <= 0) return <span className="text-adm-ink-dim">—</span>;
+        const value = h.total_lot * 100 * cp;
+        const pnl = value - h.total_cost_basis;
+        const pct = h.total_cost_basis > 0 ? (pnl / h.total_cost_basis) * 100 : null;
+        return (
+          <span className={pnl < 0 ? 'text-adm-down' : 'text-adm-up'}>
+            {fmtSignedIdr(pnl)}
+            {pct != null && <span className="ml-1 text-adm-ink-dim">({fmtSignedPct(pct)})</span>}
+          </span>
+        );
+      },
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Portofolio Aktif</h2>
-          <p className="text-slate-400 text-sm mt-1">Current stock holdings with {activeHoldings.length} active position{activeHoldings.length !== 1 ? 's' : ''}.</p>
-          <p className="text-slate-500 text-xs mt-1">Holdings are derived from your transactions — to remove a position, delete its transactions in History.</p>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <PriceStatusBadge status={status} lastUpdated={lastUpdated} onRefresh={refresh} />
-          <Briefcase className="w-6 h-6 text-amber-500" />
-        </div>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        desk="saham"
+        title="Active Portfolio"
+        sub="derived from transactions — delete transactions in History to close a position"
+        right={
+          <div className="flex items-center gap-2">
+            {activeHoldings.length > 0 && <StatusBadge kind="open" label={`${activeHoldings.length} HELD`} />}
+            <StatusBadge
+              kind={FEED_KIND[status] ?? 'loading'}
+              detail={status === 'live' && feedSecs != null ? `${feedSecs}s ago` : undefined}
+              title="Market-proxy feed"
+            />
+            <button
+              onClick={refresh}
+              title="Refresh prices"
+              aria-label="Refresh prices"
+              className="flex items-center justify-center rounded-adm-sm border border-adm-line p-1 text-adm-ink-mid hover:bg-adm-bg2"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', status === 'loading' && 'animate-spin')} />
+            </button>
+          </div>
+        }
+      />
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-            <tr>
-              <th className="px-4 py-3">Emiten</th>
-              <th className="px-4 py-3">Lot</th>
-              <th className="px-4 py-3">Shares</th>
-              <th className="px-4 py-3">Avg Price</th>
-              <th className="px-4 py-3">Cost Basis</th>
-              <th className="px-4 py-3">Current Price</th>
-              <th className="px-4 py-3">Current Value</th>
-              <th className="px-4 py-3 text-right">Floating P&L</th>
-            </tr>
-          </thead>
-          <tbody>
-            {activeHoldings.map(h => {
-              const fetched = fetchedPrices[h.emiten];
-              const manual = currentPrices[h.emiten];
-              const hasOverride = manual !== undefined && manual !== '';
-              const cp = hasOverride ? parseFloat(manual) : (fetched?.price || NaN);
-              
-              const hasCp = !isNaN(cp) && cp > 0;
-              const currentValue = hasCp ? h.total_lot * 100 * cp : null;
-              const floatingPnl = currentValue !== null ? currentValue - h.total_cost_basis : null;
-              const pnlPct = floatingPnl !== null && h.total_cost_basis > 0 ? (floatingPnl / h.total_cost_basis) * 100 : null;
+      <MetricStrip
+        items={[
+          { label: 'Cost basis', value: totals.totalCost, format: 'idr', sub: 'total invested' },
+          { label: 'Current value', value: totals.totalCurrentValue != null ? totals.totalCurrentValue : '—', format: totals.totalCurrentValue != null ? 'idr' : 'raw', emphasis: true, sub: totals.totalCurrentValue != null ? 'live valuation' : 'enter all prices' },
+          { label: 'Floating P&L', value: totals.totalPnl != null ? totals.totalPnl : '—', format: totals.totalPnl != null ? 'signedIdr' : 'raw', sub: 'value − cost' },
+        ]}
+      />
 
-              return (
-                <tr key={h.emiten} className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                  <td className="px-4 py-3 font-medium text-slate-200">{h.emiten}</td>
-                  <td className="px-4 py-3 text-slate-300">{h.total_lot}</td>
-                  <td className="px-4 py-3 text-slate-400">{(h.total_lot * 100).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-slate-300">Rp{h.average_price.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-slate-300">Rp{h.total_cost_basis.toLocaleString()}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          step="1"
-                          placeholder={fetched?.price ? String(fetched.price) : "Enter price"}
-                          value={currentPrices[h.emiten] || ''}
-                          onChange={(e) => setCurrentPrices(prev => ({ ...prev, [h.emiten]: e.target.value }))}
-                          className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-amber-500"
-                        />
-                        {hasOverride ? (
-                          <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider bg-slate-800 px-1.5 py-0.5 rounded">Manual</span>
-                        ) : fetched ? (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-500 uppercase tracking-wider bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                            Live
-                          </span>
-                        ) : null}
-                      </div>
-                      {!hasOverride && fetched?.changePercent != null && (
-                        <span className={cn("text-[11px] font-medium ml-1", fetched.changePercent >= 0 ? "text-emerald-400" : "text-rose-400")}>
-                          {fetched.changePercent >= 0 ? '▲' : '▼'} {Math.abs(fetched.changePercent).toFixed(2)}%
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">
-                    {currentValue !== null ? `Rp${currentValue.toLocaleString()}` : <span className="text-slate-500">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {floatingPnl !== null ? (
-                      <div>
-                        <span className={cn('font-medium', floatingPnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                          {floatingPnl >= 0 ? '+' : ''}Rp{floatingPnl.toLocaleString()}
-                        </span>
-                        {pnlPct !== null && (
-                          <span className={cn('ml-1 text-xs', floatingPnl >= 0 ? 'text-emerald-500' : 'text-rose-500')}>
-                            ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-slate-500">—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {activeHoldings.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-500">No active holdings. Buy some stocks to get started.</td></tr>
-            )}
-          </tbody>
-          {activeHoldings.length > 0 && (
-            <tfoot className="border-t border-slate-700 bg-slate-950/30">
-              <tr>
-                <td colSpan={4} className="px-4 py-3 font-medium text-slate-300">Totals</td>
-                <td className="px-4 py-3 font-medium text-slate-200">Rp{totals.totalCost.toLocaleString()}</td>
-                <td className="px-4 py-3 text-xs text-slate-500">{totals.totalCurrentValue !== null ? '' : 'Enter all prices'}</td>
-                <td className="px-4 py-3 font-medium text-slate-200">{totals.totalCurrentValue !== null ? `Rp${totals.totalCurrentValue.toLocaleString()}` : '—'}</td>
-                <td className="px-4 py-3 text-right font-medium">
-                  {totals.totalPnl !== null ? (
-                    <span className={cn(totals.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                      {totals.totalPnl >= 0 ? '+' : ''}Rp{totals.totalPnl.toLocaleString()}
-                    </span>
-                  ) : '—'}
-                </td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
+      <DataTable
+        columns={columns}
+        rows={activeHoldings}
+        rowKey={h => h.emiten}
+        defaultSort={{ key: 'cost', dir: 'desc' }}
+        minWidth={960}
+        empty="No active holdings. Buy some stocks to get started."
+      />
     </div>
   );
 }
