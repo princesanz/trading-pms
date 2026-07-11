@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { useEffect, useMemo } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthProvider';
+import { tableQueries } from './tableQueries';
 import type { Trade, CashFlow, AccountSettings, SetupTag, PsychologyTag, InstrumentSpec } from '../types';
 
 /** Attaches setup_tag / psychology_tag objects client-side from the tag lists.
@@ -21,64 +22,64 @@ export function attachTradeTags<T extends { setup?: string | null; psikologi?: s
   }));
 }
 
+/**
+ * react-query wrap (redesign, plumbing only): same tables, same SELECTs (see
+ * tableQueries.ts), same return shape. staleTime is Infinity — data refreshes
+ * only via `refetch` or a table-key invalidation at a mutation site. The auth
+ * gate is preserved: queries are disabled until AuthProvider finishes session
+ * recovery (otherwise the fetch races getSession() and RLS returns nothing),
+ * and the uid in each key re-fetches on login/logout like the old
+ * [authLoading, session] effect did.
+ */
 export function usePortfolioData() {
   const { session, loading: authLoading } = useAuth();
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [cashFlows, setCashFlows] = useState<CashFlow[]>([]);
-  const [settings, setSettings] = useState<AccountSettings | null>(null);
-  const [setupTags, setSetupTags] = useState<SetupTag[]>([]);
-  const [psychologyTags, setPsychologyTags] = useState<PsychologyTag[]>([]);
-  const [instrumentSpecs, setInstrumentSpecs] = useState<InstrumentSpec[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const uid = session?.user?.id ?? 'anon';
+  const enabled = !authLoading;
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [tradesRes, cashFlowsRes, settingsRes, setupsRes, psychRes, specsRes] = await Promise.all([
-        supabase.from('trades').select('*').order('tanggal', { ascending: true }).order('created_at', { ascending: true }),
-        supabase.from('cash_flows').select('*').order('tanggal', { ascending: true }),
-        supabase.from('account_settings').select('*').limit(1).maybeSingle(),
-        supabase.from('setup_tags').select('*'),
-        supabase.from('psychology_tags').select('*'),
-        supabase.from('instrument_specs').select('*'),
-      ]);
+  const [tradesQ, cashFlowsQ, settingsQ, setupsQ, psychQ, specsQ] = useQueries({
+    queries: [
+      { ...tableQueries.trades(uid), enabled },
+      { ...tableQueries.cashFlowsAll(uid), enabled },
+      { ...tableQueries.accountSettings(uid), enabled },
+      { ...tableQueries.setupTags(uid), enabled },
+      { ...tableQueries.psychologyTags(uid), enabled },
+      { ...tableQueries.instrumentSpecs(uid), enabled },
+    ],
+  });
 
-      const firstError = tradesRes.error || cashFlowsRes.error || settingsRes.error || setupsRes.error || psychRes.error;
-      if (firstError) {
-        console.error('[usePortfolioData] fetch error:', firstError);
-        setError(firstError.message);
-      }
-      // instrument_specs is non-critical (and may not exist until the Phase 4 migration
-      // is applied) — tolerate its failure so the rest of the app keeps working.
-      if (specsRes.error) {
-        console.warn('[usePortfolioData] instrument_specs unavailable:', specsRes.error.message);
-      }
+  // Same error surface as before: first error among the critical five;
+  // instrument_specs is non-critical (may not exist pre-Phase-4 migration).
+  const firstError = tradesQ.error || cashFlowsQ.error || settingsQ.error || setupsQ.error || psychQ.error;
+  const error = firstError ? firstError.message : null;
+  useEffect(() => {
+    if (firstError) console.error('[usePortfolioData] fetch error:', firstError);
+  }, [firstError]);
+  useEffect(() => {
+    if (specsQ.error) console.warn('[usePortfolioData] instrument_specs unavailable:', specsQ.error.message);
+  }, [specsQ.error]);
 
-      const setups = (setupsRes.data ?? []) as SetupTag[];
-      const psychs = (psychRes.data ?? []) as PsychologyTag[];
-      setSetupTags(setups);
-      setPsychologyTags(psychs);
-      if (specsRes.data) setInstrumentSpecs(specsRes.data as InstrumentSpec[]);
-      if (tradesRes.data) setTrades(attachTradeTags(tradesRes.data, setups, psychs) as Trade[]);
-      if (cashFlowsRes.data) setCashFlows(cashFlowsRes.data as CashFlow[]);
-      if (settingsRes.data) setSettings(settingsRes.data as AccountSettings);
-    } catch (e: any) {
-      console.error('[usePortfolioData] fetch failed:', e);
-      setError(e?.message ?? String(e));
-    } finally {
-      setLoading(false);
-    }
+  const setupTags = (setupsQ.data ?? []) as SetupTag[];
+  const psychologyTags = (psychQ.data ?? []) as PsychologyTag[];
+  const trades = useMemo(
+    () => (tradesQ.data ? (attachTradeTags(tradesQ.data as Trade[], setupTags, psychologyTags) as Trade[]) : []),
+    [tradesQ.data, setupsQ.data, psychQ.data] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const loading = authLoading || [tradesQ, cashFlowsQ, settingsQ, setupsQ, psychQ, specsQ].some(q => q.isPending && q.fetchStatus !== 'idle') || [tradesQ, cashFlowsQ, settingsQ, setupsQ, psychQ, specsQ].some(q => q.isFetching);
+
+  const refetch = () => {
+    void Promise.all([tradesQ, cashFlowsQ, settingsQ, setupsQ, psychQ, specsQ].map(q => q.refetch()));
   };
 
-  useEffect(() => {
-    // Wait until AuthProvider finishes its initial session recovery.
-    // Without this gate the fetch races getSession() and hits Supabase
-    // with no JWT attached → RLS blocks every row → empty results.
-    if (authLoading) return;
-    fetchData();
-  }, [authLoading, session]);
-
-  return { trades, cashFlows, settings, setupTags, psychologyTags, instrumentSpecs, loading: loading || authLoading, error, refetch: fetchData };
+  return {
+    trades,
+    cashFlows: (cashFlowsQ.data ?? []) as CashFlow[],
+    settings: (settingsQ.data ?? null) as AccountSettings | null,
+    setupTags,
+    psychologyTags,
+    instrumentSpecs: (specsQ.data ?? []) as InstrumentSpec[],
+    loading,
+    error,
+    refetch,
+  };
 }

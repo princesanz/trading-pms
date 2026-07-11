@@ -5,6 +5,7 @@ import * as z from 'zod';
 import { AlertTriangle, Send } from 'lucide-react';
 import { usePortfolioData } from '../hooks/useSupabase';
 import { supabase } from '../lib/supabase';
+import { queryClient } from '../lib/queryClient';
 import { useNavigate } from 'react-router-dom';
 import { getContractSize } from '../types';
 import { calculateEffectiveTradingBalance, calculateRealizedBalance } from '../lib/balanceCalc';
@@ -178,7 +179,9 @@ export function TradeEntry() {
     if (insertResponse.error) {
       alert(`Error: ${insertResponse.error.message}`);
     } else {
-      // The journal page re-fetches on mount, so navigating shows the new trade.
+      // Journal data is cached forever (staleTime: Infinity) — invalidating the
+      // trades key is what makes the journal refetch on the next mount.
+      void queryClient.invalidateQueries({ queryKey: ['trades'] });
       navigate('/journal');
     }
   };

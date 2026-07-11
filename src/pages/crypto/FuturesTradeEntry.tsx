@@ -5,6 +5,7 @@ import * as z from 'zod';
 import { AlertTriangle, Send } from 'lucide-react';
 import { useCryptoData } from '../../hooks/useCryptoData';
 import { supabase } from '../../lib/supabase';
+import { queryClient } from '../../lib/queryClient';
 import { useNavigate } from 'react-router-dom';
 import { calculateEffectiveTradingBalance } from '../../lib/balanceCalc';
 
@@ -105,7 +106,9 @@ export function FuturesTradeEntry() {
     setIsSubmitting(false);
     if (insertResponse.error) { alert(`Error: ${insertResponse.error.message}`); }
     else {
-      // The journal page re-fetches on mount, so navigating shows the new position.
+      // Journal data is cached forever (staleTime: Infinity) — invalidating the
+      // table key is what makes the journal refetch on the next mount.
+      void queryClient.invalidateQueries({ queryKey: ['crypto_futures_trades'] });
       navigate('/crypto/futures/journal');
     }
   };

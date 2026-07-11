@@ -1,62 +1,56 @@
-import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { useEffect, useMemo } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthProvider';
+import { tableQueries } from './tableQueries';
 import type { StockTransaction, StockHolding, Dividend, CashFlow, AnalysisTag } from '../types';
 
+/** react-query wrap (redesign, plumbing only) — see usePortfolioData for the
+ *  semantics. Client-side analysis-tag join preserved unchanged. */
 export function useEquitiesData() {
   const { session, loading: authLoading } = useAuth();
-  const [transactions, setTransactions] = useState<StockTransaction[]>([]);
-  const [holdings, setHoldings] = useState<StockHolding[]>([]);
-  const [dividends, setDividends] = useState<Dividend[]>([]);
-  const [cashFlows, setCashFlows] = useState<CashFlow[]>([]);
-  const [analysisTags, setAnalysisTags] = useState<AnalysisTag[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const uid = session?.user?.id ?? 'anon';
+  const enabled = !authLoading;
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [txRes, holdingsRes, dividendsRes, cashFlowsRes, tagsRes] = await Promise.all([
-        // Plain select + client-side tag join — FK-embedded joins fail on the
-        // migrated DB (missing FK metadata) and used to be swallowed silently.
-        supabase.from('stock_transactions').select('*').order('tanggal', { ascending: true }).order('created_at', { ascending: true }),
-        supabase.from('stock_holdings').select('*').order('emiten', { ascending: true }),
-        supabase.from('dividends').select('*').order('tanggal_cum_date', { ascending: false }),
-        supabase.from('cash_flows').select('*').eq('desk', 'Saham').order('tanggal', { ascending: true }),
-        supabase.from('analysis_tags').select('*').order('name', { ascending: true }),
-      ]);
+  const [txQ, holdingsQ, dividendsQ, cashFlowsQ, tagsQ] = useQueries({
+    queries: [
+      { ...tableQueries.stockTransactions(uid), enabled },
+      { ...tableQueries.stockHoldings(uid), enabled },
+      { ...tableQueries.dividends(uid), enabled },
+      { ...tableQueries.cashFlowsDesk('Saham', uid), enabled },
+      { ...tableQueries.analysisTags(uid), enabled },
+    ],
+  });
 
-      const firstError = txRes.error || holdingsRes.error || dividendsRes.error || cashFlowsRes.error || tagsRes.error;
-      if (firstError) {
-        console.error('[useEquitiesData] fetch error:', firstError);
-        setError(firstError.message);
-      }
+  const firstError = txQ.error || holdingsQ.error || dividendsQ.error || cashFlowsQ.error || tagsQ.error;
+  const error = firstError ? firstError.message : null;
+  useEffect(() => {
+    if (firstError) console.error('[useEquitiesData] fetch error:', firstError);
+  }, [firstError]);
 
-      const tags = (tagsRes.data ?? []) as AnalysisTag[];
-      setAnalysisTags(tags);
-      if (txRes.data) {
-        const tagById = new Map(tags.map(t => [t.id, t]));
-        setTransactions(txRes.data.map((tx: StockTransaction) => ({
-          ...tx,
-          analysis_tag_obj: tx.analysis_tag ? tagById.get(tx.analysis_tag) : undefined,
-        })));
-      }
-      if (holdingsRes.data) setHoldings(holdingsRes.data as StockHolding[]);
-      if (dividendsRes.data) setDividends(dividendsRes.data as Dividend[]);
-      if (cashFlowsRes.data) setCashFlows(cashFlowsRes.data as CashFlow[]);
-    } catch (e: any) {
-      console.error('[useEquitiesData] fetch failed:', e);
-      setError(e?.message ?? String(e));
-    } finally {
-      setLoading(false);
-    }
+  const analysisTags = (tagsQ.data ?? []) as AnalysisTag[];
+  const transactions = useMemo(() => {
+    if (!txQ.data) return [];
+    const tagById = new Map(analysisTags.map(t => [t.id, t]));
+    return (txQ.data as StockTransaction[]).map((tx: StockTransaction) => ({
+      ...tx,
+      analysis_tag_obj: tx.analysis_tag ? tagById.get(tx.analysis_tag) : undefined,
+    }));
+  }, [txQ.data, tagsQ.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const all = [txQ, holdingsQ, dividendsQ, cashFlowsQ, tagsQ];
+  const loading = authLoading || all.some(q => q.isPending && q.fetchStatus !== 'idle') || all.some(q => q.isFetching);
+  const refetch = () => {
+    void Promise.all(all.map(q => q.refetch()));
   };
 
-  useEffect(() => {
-    if (authLoading) return;
-    fetchData();
-  }, [authLoading, session]);
-
-  return { transactions, holdings, dividends, cashFlows, analysisTags, loading: loading || authLoading, error, refetch: fetchData };
+  return {
+    transactions,
+    holdings: (holdingsQ.data ?? []) as StockHolding[],
+    dividends: (dividendsQ.data ?? []) as Dividend[],
+    cashFlows: (cashFlowsQ.data ?? []) as CashFlow[],
+    analysisTags,
+    loading,
+    error,
+    refetch,
+  };
 }

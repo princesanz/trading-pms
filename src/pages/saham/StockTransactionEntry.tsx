@@ -5,6 +5,7 @@ import * as z from 'zod';
 import { Send, AlertTriangle } from 'lucide-react';
 import { useEquitiesData } from '../../hooks/useEquitiesData';
 import { supabase } from '../../lib/supabase';
+import { queryClient } from '../../lib/queryClient';
 import { recalculateHolding } from '../../lib/stockCalc';
 import { getCurrencyForDesk } from '../../types';
 import { useNavigate } from 'react-router-dom';
@@ -132,7 +133,12 @@ export function StockTransactionEntry() {
       // how to recompute, and re-running self-heals.
       await recalculateHolding(data.emiten, data.market);
 
-      // The history page re-fetches on mount, so navigating shows the new transaction.
+      // History/portfolio data is cached forever (staleTime: Infinity) — invalidate
+      // every table this flow wrote: the transaction, its cash-flow legs, and the
+      // holding recalculated above. Prefix ['cash_flows'] hits all desk scopes.
+      void queryClient.invalidateQueries({ queryKey: ['stock_transactions'] });
+      void queryClient.invalidateQueries({ queryKey: ['cash_flows'] });
+      void queryClient.invalidateQueries({ queryKey: ['stock_holdings'] });
       navigate('/saham/history');
     } catch (e: any) {
       alert(`Error: ${e.message}`);
