@@ -4,12 +4,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { AlertTriangle, Send } from 'lucide-react';
 import { usePortfolioData } from '../hooks/useSupabase';
-import { supabase } from '../lib/supabase';
 import { queryClient } from '../lib/queryClient';
 import { useNavigate } from 'react-router-dom';
 import { getContractSize } from '../types';
 import { calculateEffectiveTradingBalance, calculateRealizedBalance } from '../lib/balanceCalc';
 import { classifySession } from '../lib/session';
+import { insertForexTrade } from '../lib/forexTradeInsert';
 
 const tradeSchema = z.object({
   tanggal: z.string().min(1, 'Date is required'),
@@ -134,45 +134,11 @@ export function TradeEntry() {
   const onSubmit = async (data: TradeFormValues) => {
     if (balanceError) return;
     setIsSubmitting(true);
-    
-    const riskToReward = data.sl && data.tp
-      ? (Math.abs(data.tp - data.harga_entry) / Math.abs(data.harga_entry - data.sl)).toFixed(2)
-      : null;
 
-    // Snapshots captured ONCE at open — never live-recomputed afterward.
-    const openTs = new Date().toISOString();          // UTC instant
-    const session = classifySession(openTs);          // DST-aware, UTC -> market tz
-    const balance_at_open = calculateRealizedBalance(settings?.modal_awal ?? 0, cashFlows, 'Forex', trades);
-    const specPointValue = (() => {
-      const key = data.instrumen.toUpperCase();
-      const spec = instrumentSpecs.find(s => s.instrument.toUpperCase() === key);
-      return spec ? Number(spec.point_value) : getContractSize(data.instrumen);
-    })();
-
-    const insertResponse = await supabase.from('trades').insert({
-      tanggal: data.tanggal,
-      instrumen: data.instrumen,
-      category: data.category,
-      posisi: data.posisi,
-      lot: data.lot,
-      leverage: data.leverage,
-      harga_entry: data.harga_entry,
-      sl: data.sl || null,
-      tp: data.tp || null,
-      komisi_swap: data.komisi_swap,
-      setup: data.setup || null,
-      psikologi: data.psikologi || null,
-      catatan: data.catatan,
-      risk_to_reward: riskToReward ? `1:${riskToReward}` : null,
-      status: 'Open',
-      // Phase 4 snapshots (trade_number, risk_usd, risk_pct, rr_planned, rr_actual are
-      // assigned by the DB via the sequence default / GENERATED columns / trigger).
-      open_ts: openTs,
-      session,
-      balance_at_open,
-      point_value: specPointValue,
-      // net_pnl, persen_profit_loss, and saldo_akun stay null until trade is closed.
-    }).select();
+    // Shared insert path (lib/forexTradeInsert) — snapshots (open_ts, session,
+    // balance_at_open, point_value) and riskToReward are computed there, verbatim
+    // from the logic that used to live here. The CommandBar uses the same path.
+    const insertResponse = await insertForexTrade(data, { settings, cashFlows, trades, instrumentSpecs });
 
     setIsSubmitting(false);
 
