@@ -14,7 +14,11 @@
  * file is admin-only.
  */
 import { useEffect, useMemo, useRef } from 'react';
-import uPlot from 'uplot';
+import type UPlot from 'uplot';
+// uPlot's CSS is tiny and lands in the shared CSS chunk (not the JS entry), so
+// it stays static. The uPlot JS itself is imported dynamically in the XY effect
+// below, so pages that use only the alloc bar (e.g. the Overview) never pull the
+// canvas library into their chunk.
 import 'uplot/dist/uPlot.min.css';
 import { cn } from '../../lib/utils';
 import { color } from '../../design/tokens';
@@ -90,10 +94,10 @@ function Panel({ title, note, className, children }: { title?: string; note?: st
 function XYChart({ type, x, series, xKind = 'time', xLabels, height = 240, title, note, valueFormat = fmtNum, className }: XYProps) {
   const plotRef = useRef<HTMLDivElement | null>(null);
   const readoutRef = useRef<HTMLDivElement | null>(null);
-  const uRef = useRef<uPlot | null>(null);
+  const uRef = useRef<UPlot | null>(null);
 
-  const data = useMemo<uPlot.AlignedData>(
-    () => [x, ...series.map(s => s.data)] as uPlot.AlignedData,
+  const data = useMemo<UPlot.AlignedData>(
+    () => [x, ...series.map(s => s.data)] as UPlot.AlignedData,
     [x, series]
   );
 
@@ -104,8 +108,12 @@ function XYChart({ type, x, series, xKind = 'time', xLabels, height = 240, title
     const el = plotRef.current;
     if (!el) return;
 
+    let cancelled = false;
+    let inst: UPlot | null = null;
+    let ro: ResizeObserver | null = null;
+
     const readout = readoutRef.current;
-    const setReadout = (u: uPlot) => {
+    const setReadout = (u: UPlot) => {
       if (!readout) return;
       const idx = u.cursor.idx;
       if (idx == null) {
@@ -124,64 +132,72 @@ function XYChart({ type, x, series, xKind = 'time', xLabels, height = 240, title
         .join('   ')}`;
     };
 
-    const opts: uPlot.Options = {
-      width: el.clientWidth || 600,
-      height,
-      legend: { show: false },
-      cursor: {
-        y: false,
-        points: { size: 6, width: 1, stroke: color.ink.hi, fill: color.bg1 },
-      },
-      scales: { x: { time: xKind === 'time' } },
-      axes: [
-        {
-          stroke: color.ink.dim,
-          font: AXIS_FONT,
-          grid: { show: false },
-          ticks: { stroke: color.line, width: 1 },
-          ...(xKind === 'category' && xLabels
-            ? { values: (_u: uPlot, splits: number[]) => splits.map(v => (Number.isInteger(v) ? xLabels[v] ?? '' : '')) }
-            : {}),
+    // Dynamic import: the canvas library loads only when an XY chart actually
+    // mounts, keeping it out of the chunks of alloc-only pages.
+    void (async () => {
+      const { default: uPlot } = await import('uplot');
+      if (cancelled || !el) return;
+
+      const opts: UPlot.Options = {
+        width: el.clientWidth || 600,
+        height,
+        legend: { show: false },
+        cursor: {
+          y: false,
+          points: { size: 6, width: 1, stroke: color.ink.hi, fill: color.bg1 },
         },
-        {
-          stroke: color.ink.dim,
-          font: AXIS_FONT,
-          grid: { stroke: color.line, width: 1 },
-          ticks: { show: false },
-          size: 64,
-          values: (_u: uPlot, splits: number[]) => splits.map(v => valueFormat(v)),
-        },
-      ],
-      series: [
-        {},
-        ...series.map(s => {
-          const stroke = TONE_STROKE[s.tone ?? 'neutral'];
-          return {
-            label: s.label,
-            stroke,
-            width: 2,
-            ...(type === 'area' ? { fill: alpha12(stroke) } : {}),
-            ...(type === 'bars'
-              ? { fill: alpha12(stroke), width: 1, paths: uPlot.paths.bars!({ size: [0.6, 64] }) }
+        scales: { x: { time: xKind === 'time' } },
+        axes: [
+          {
+            stroke: color.ink.dim,
+            font: AXIS_FONT,
+            grid: { show: false },
+            ticks: { stroke: color.line, width: 1 },
+            ...(xKind === 'category' && xLabels
+              ? { values: (_u: UPlot, splits: number[]) => splits.map(v => (Number.isInteger(v) ? xLabels[v] ?? '' : '')) }
               : {}),
-            points: { show: false },
-          } as uPlot.Series;
-        }),
-      ],
-      hooks: { setCursor: [setReadout] },
-    };
+          },
+          {
+            stroke: color.ink.dim,
+            font: AXIS_FONT,
+            grid: { stroke: color.line, width: 1 },
+            ticks: { show: false },
+            size: 64,
+            values: (_u: UPlot, splits: number[]) => splits.map(v => valueFormat(v)),
+          },
+        ],
+        series: [
+          {},
+          ...series.map(s => {
+            const stroke = TONE_STROKE[s.tone ?? 'neutral'];
+            return {
+              label: s.label,
+              stroke,
+              width: 2,
+              ...(type === 'area' ? { fill: alpha12(stroke) } : {}),
+              ...(type === 'bars'
+                ? { fill: alpha12(stroke), width: 1, paths: uPlot.paths.bars!({ size: [0.6, 64] }) }
+                : {}),
+              points: { show: false },
+            } as UPlot.Series;
+          }),
+        ],
+        hooks: { setCursor: [setReadout] },
+      };
 
-    const u = new uPlot(opts, data, el);
-    uRef.current = u;
+      inst = new uPlot(opts, data, el);
+      uRef.current = inst;
 
-    const ro = new ResizeObserver(() => {
-      if (el.clientWidth > 0) u.setSize({ width: el.clientWidth, height });
-    });
-    ro.observe(el);
+      ro = new ResizeObserver(() => {
+        if (el.clientWidth > 0) inst?.setSize({ width: el.clientWidth, height });
+      });
+      ro.observe(el);
+    })();
 
     return () => {
-      ro.disconnect();
-      u.destroy();
+      cancelled = true;
+      ro?.disconnect();
+      inst?.destroy();
       uRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recreate only on structural change
