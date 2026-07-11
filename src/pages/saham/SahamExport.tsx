@@ -1,6 +1,7 @@
 import { useEquitiesData } from '../../hooks/useEquitiesData';
 import { ExportPanel, type ExportChoice } from '../../components/ExportPanel';
 import { cashFlowSection } from '../../lib/exportUtils';
+import { PageHeader } from '../../components/adm/PageHeader';
 
 export function SahamExport() {
   const { transactions, holdings, dividends, cashFlows } = useEquitiesData();
@@ -75,13 +76,16 @@ export function SahamExport() {
   ];
 
   return (
-    <ExportPanel
-      title="Export — Saham"
-      description="Download your transactions, holdings, dividends, and cash flows as CSV or Excel."
-      desk="saham"
-      buttonClass="bg-amber-600 hover:bg-amber-500"
-      accentText="text-amber-400"
-      choices={choices}
-    />
+    <div className="space-y-4">
+      <PageHeader desk="saham" title="Export" sub="transactions · holdings · dividends · cash flows · CSV / Excel" />
+      <ExportPanel
+        title="Export — Saham"
+        description="Download your transactions, holdings, dividends, and cash flows as CSV or Excel."
+        desk="saham"
+        buttonClass="bg-amber-600 hover:bg-amber-500"
+        accentText="text-amber-400"
+        choices={choices}
+      />
+    </div>
   );
 }
