@@ -3,6 +3,12 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
 import { AppLayout } from './components/layout/AppLayout';
+import { CommandBar, type ParsedTrade } from './components/adm/CommandBar';
+import { useForexPolling } from './state/prices';
+import { usePortfolioData } from './hooks/useSupabase';
+import { useAuth } from './contexts/AuthProvider';
+import { insertForexTrade } from './lib/forexTradeInsert';
+import type { Trade } from './types';
 import { CryptoPriceProvider } from './contexts/CryptoPriceProvider';
 import { ForexPriceProvider } from './contexts/ForexPriceProvider';
 import { FxRateProvider } from './contexts/FxRateProvider';
@@ -53,13 +59,64 @@ function CryptoPriceLayout() {
   );
 }
 
-// Same pattern for Forex: one gold-api poller for the whole desk, mounted only
-// while a Forex page is open.
-function ForexPriceLayout() {
+/**
+ * Forex desk layout (redesign Phase 2): prices poll via the zustand store
+ * (ref-counted, one 5s gold-api poller for the desk — the context provider no
+ * longer wraps these routes), and the CommandBar is mounted desk-wide on `n`.
+ *
+ * CommandBar submit = OPTIMISTIC: a temp row lands in the ['trades'] cache
+ * immediately (journal/positions update at once), the Supabase write runs in
+ * the background through the SAME insert path as the Trade Entry form
+ * (lib/forexTradeInsert — identical snapshots), and the cache reconciles to
+ * server truth on success or rolls back with an alert on failure.
+ */
+function ForexDeskLayout() {
+  useForexPolling();
+  const { session, isAdmin } = useAuth();
+  const { trades, cashFlows, settings, setupTags, instrumentSpecs } = usePortfolioData();
+
+  const submit = (t: ParsedTrade) => {
+    const uid = session?.user?.id ?? 'anon';
+    // A #tag matching a setup tag's name becomes the setup; otherwise it stays in notes.
+    const setup = t.tag ? setupTags.find(s => s.name.toLowerCase() === t.tag!.toLowerCase())?.id : undefined;
+    const payload = {
+      tanggal: new Date().toISOString().split('T')[0],
+      instrumen: t.symbol,
+      category: 'forex' as const,
+      posisi: (t.side === 'buy' ? 'Buy' : 'Sell') as Trade['posisi'],
+      lot: t.size,
+      leverage: 100, // form default; adjust via the full form when it matters
+      harga_entry: t.entry,
+      sl: t.sl,
+      tp: t.tp,
+      komisi_swap: 0,
+      setup,
+      catatan: t.tag && !setup ? `#${t.tag}` : undefined,
+    };
+
+    // Optimistic cache entry — placeholder until the server assigns ids/snapshots.
+    const tempRow = {
+      ...payload,
+      id: `temp-${Date.now()}`,
+      status: 'Open',
+      trade_number: null,
+      net_pnl: null,
+      saldo_akun: null,
+    } as unknown as Trade;
+    queryClient.setQueryData<Trade[]>(['trades', uid], old => [...(old ?? []), tempRow]);
+
+    void insertForexTrade(payload, { settings, cashFlows, trades, instrumentSpecs }).then(res => {
+      if (res.error) alert(`Trade rejected by the server: ${res.error.message}`);
+      // Reconcile to server truth either way (real ids on success, rollback on failure).
+      void queryClient.invalidateQueries({ queryKey: ['trades'] });
+    });
+  };
+
   return (
-    <ForexPriceProvider>
+    <>
+      {isAdmin && <CommandBar desk="forex" onSubmit={submit} />}
       <Outlet />
-    </ForexPriceProvider>
+    </>
   );
 }
 
@@ -92,8 +149,8 @@ export default function App() {
               <Route path="/overview" element={<Overview />} />
             </Route>
 
-            {/* Forex desk — read views (live gold prices) */}
-            <Route element={<ForexPriceLayout />}>
+            {/* Forex desk — read views (live gold prices via the price store) */}
+            <Route element={<ForexDeskLayout />}>
               <Route path="/forex" element={<Dashboard />} />
               <Route path="/open-positions" element={<OpenPositions />} />
               <Route path="/journal" element={<TradeHistory />} />

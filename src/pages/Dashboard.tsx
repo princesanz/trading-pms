@@ -114,6 +114,7 @@ export function Dashboard() {
         desk="forex"
         title="Forex & Commodities"
         sub="XAUUSD · majors · indices"
+        commandHint
         right={
           <div className="flex items-center gap-2">
             {stats.totalOpen > 0 && <StatusBadge kind="open" label={`${stats.totalOpen} OPEN`} />}
