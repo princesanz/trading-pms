@@ -88,6 +88,13 @@ function RawCounts({ fetched }: { fetched: number }) {
  * auth.uid() reads server-side — for byte-for-byte comparison against the
  * admin_full_access policy UID. No theory: just shows the actual value. */
 const EXPECTED_ADMIN_UID = '022f007f-6498-4e05-b20f-15d4a2f94051';
+const EXPECTED_PROJECT_REF = 'fwjufbssfttswflbvjxl';
+// Project the APP is configured against (from .env), independent of the browser
+// session — the wrong-project session bug turned on exactly this mismatch.
+const ACTIVE_PROJECT_REF = (() => {
+  try { return new URL(import.meta.env.VITE_SUPABASE_URL).hostname.split('.')[0]; }
+  catch { return '(unset)'; }
+})();
 function SessionIdentity() {
   const [uid, setUid] = useState<string | null | undefined>(undefined);
   const [email, setEmail] = useState<string | null>(null);
@@ -109,6 +116,12 @@ function SessionIdentity() {
     <div className="rounded-adm border border-adm-line2 bg-adm-bg1 p-3">
       <p className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">live session identity (auth.uid = JWT sub)</p>
       <div className="mt-2 space-y-0.5 font-adm-data text-adm-xs">
+        <div className="text-adm-ink-mid">
+          project: <span className="text-adm-ink-hi select-all">{ACTIVE_PROJECT_REF}</span>{' '}
+          {ACTIVE_PROJECT_REF === EXPECTED_PROJECT_REF
+            ? <span className="text-adm-up">✓ correct project</span>
+            : <span className="text-adm-down">✗ expected {EXPECTED_PROJECT_REF}</span>}
+        </div>
         <div className="text-adm-ink-mid">email: <span className="text-adm-ink-hi select-all">{email ?? '—'}</span></div>
         <div className="text-adm-ink-mid">session uid: <span className="text-adm-ink-hi select-all">{uid === undefined ? '…' : uid ?? 'NULL (no session)'}</span> <span className="text-adm-ink-dim">(len {uid?.length ?? 0})</span></div>
         <div className="text-adm-ink-mid">policy uid:&nbsp; <span className="text-adm-ink-hi select-all">{EXPECTED_ADMIN_UID}</span> <span className="text-adm-ink-dim">(len {EXPECTED_ADMIN_UID.length})</span></div>
