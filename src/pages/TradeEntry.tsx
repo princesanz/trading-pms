@@ -10,6 +10,7 @@ import { getContractSize } from '../types';
 import { calculateEffectiveTradingBalance, calculateRealizedBalance } from '../lib/balanceCalc';
 import { classifySession } from '../lib/session';
 import { insertForexTrade } from '../lib/forexTradeInsert';
+import { PageHeader } from '../components/adm/PageHeader';
 
 const tradeSchema = z.object({
   tanggal: z.string().min(1, 'Date is required'),
@@ -153,51 +154,42 @@ export function TradeEntry() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Log New Trade</h2>
-        <p className="text-slate-400 text-sm mt-1">Enter your trade details. P&L will be updated when the trade is closed.</p>
-      </div>
+    <div className="mx-auto max-w-2xl space-y-4">
+      <PageHeader desk="forex" title="Log New Trade" sub="P&L is recorded when the trade is closed" />
 
       {balanceError && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg flex items-start gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-          <div>
-            <h4 className="font-medium">Insufficient Balance</h4>
-            <p className="text-sm opacity-90">{balanceError}</p>
-          </div>
-        </div>
+        <p className="flex items-start gap-2 rounded-adm border border-adm-down/40 bg-adm-down-fill px-3 py-2 font-adm-data text-adm-xs text-adm-down">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span><span className="uppercase">Insufficient balance</span> — {balanceError}</span>
+        </p>
       )}
 
       {riskWarning && (
-        <div className="p-4 bg-orange-500/10 border border-orange-500/50 rounded-lg flex items-start gap-3 text-orange-400">
-          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-          <div>
-            <h4 className="font-medium">Risk Alert</h4>
-            <p className="text-sm opacity-90">{riskWarning}</p>
-          </div>
-        </div>
+        <p className="flex items-start gap-2 rounded-adm border border-adm-desk-forex/40 bg-adm-bg1 px-3 py-2 font-adm-data text-adm-xs text-adm-desk-forex">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span><span className="uppercase">Risk alert</span> — {riskWarning}</span>
+        </p>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 rounded-adm border border-adm-line bg-adm-bg1 p-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Date</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Date</label>
             <input 
               type="date" 
               {...register('tanggal')} 
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             />
-            {errors.tanggal && <span className="text-xs text-red-500">{errors.tanggal.message}</span>}
+            {errors.tanggal && <span className="font-adm-data text-adm-micro text-adm-down">{errors.tanggal.message}</span>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Instrument</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Instrument</label>
             <select
               {...register('instrumen')}
               defaultValue=""
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             >
               <option value="" disabled>-- Select Instrument --</option>
               <optgroup label="Commodities">
@@ -218,27 +210,27 @@ export function TradeEntry() {
                 <option value="NZDUSD">NZDUSD</option>
               </optgroup>
             </select>
-            {errors.instrumen && <span className="text-xs text-red-500">{errors.instrumen.message}</span>}
+            {errors.instrumen && <span className="font-adm-data text-adm-micro text-adm-down">{errors.instrumen.message}</span>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Category</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Category</label>
             <select
               {...register('category')}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             >
               <option value="forex">Forex</option>
               <option value="crypto">Crypto</option>
               <option value="stock">Stock</option>
             </select>
-            {errors.category && <span className="text-xs text-red-500">{errors.category.message}</span>}
+            {errors.category && <span className="font-adm-data text-adm-micro text-adm-down">{errors.category.message}</span>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Position</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Position</label>
             <select 
               {...register('posisi')} 
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             >
               <option value="Buy">Buy (Long)</option>
               <option value="Sell">Sell (Short)</option>
@@ -246,74 +238,74 @@ export function TradeEntry() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Lot Size</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Lot Size</label>
             <input 
               type="number" 
               step="0.01"
               {...register('lot', { valueAsNumber: true })} 
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             />
-            {errors.lot && <span className="text-xs text-red-500">{errors.lot.message}</span>}
+            {errors.lot && <span className="font-adm-data text-adm-micro text-adm-down">{errors.lot.message}</span>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Entry Price</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Entry Price</label>
             <input
               type="number"
               step="0.00001"
               {...register('harga_entry', { valueAsNumber: true })}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Leverage</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Leverage</label>
             <input
               type="number"
               step="1"
               {...register('leverage', { valueAsNumber: true })}
               placeholder="e.g. 100 for 1:100"
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             />
-            {errors.leverage && <span className="text-xs text-red-500">{errors.leverage.message}</span>}
+            {errors.leverage && <span className="font-adm-data text-adm-micro text-adm-down">{errors.leverage.message}</span>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Stop Loss (SL)</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Stop Loss (SL)</label>
             <input 
               type="number" 
               step="0.00001"
               {...register('sl', { valueAsNumber: true })} 
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Take Profit (TP)</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Take Profit (TP)</label>
             <input
               type="number"
               step="0.00001"
               {...register('tp', { valueAsNumber: true })}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             />
-            {errors.tp && <span className="text-xs text-red-500">{errors.tp.message}</span>}
+            {errors.tp && <span className="font-adm-data text-adm-micro text-adm-down">{errors.tp.message}</span>}
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Commission & Swap</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Commission & Swap</label>
             <input 
               type="number" 
               step="0.01"
               {...register('komisi_swap', { valueAsNumber: true })} 
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Setup</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Setup</label>
             <select 
               {...register('setup')} 
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             >
               <option value="">-- Select Setup --</option>
               {setupTags.map(tag => (
@@ -323,10 +315,10 @@ export function TradeEntry() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Psychology State</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Psychology State</label>
             <select 
               {...register('psikologi')} 
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
+              className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
             >
               <option value="">-- Select State --</option>
               {psychologyTags.map(tag => (
@@ -336,20 +328,20 @@ export function TradeEntry() {
           </div>
 
           <div className="col-span-1 md:col-span-2 space-y-2">
-            <label className="text-sm font-medium text-slate-300">Notes</label>
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Notes</label>
             <textarea 
               {...register('catatan')} 
               rows={3}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none resize-none"
+              className="w-full resize-none rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none"
               placeholder="Entry reasoning, context, etc."
             />
           </div>
         </div>
 
         {/* Auto-computed preview — read-only. These mirror what the DB will store on insert. */}
-        <div className="pt-4 border-t border-slate-800">
-          <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-3">Auto-computed</h4>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="border-t border-adm-line pt-4">
+          <h4 className="mb-3 font-adm-data text-adm-micro uppercase text-adm-ink-dim">Auto-computed</h4>
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-adm border border-adm-line bg-adm-line md:grid-cols-4">
             <ComputedField label="Trade ID" value={`TRD-${nextTradeNumber}`} />
             <ComputedField label="Balance at Open" value={`$${balanceAtOpen.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
             <ComputedField label="Session" value={previewSession} />
@@ -358,19 +350,19 @@ export function TradeEntry() {
             <ComputedField label="Risk %" value={previewRiskPct != null ? `${previewRiskPct.toFixed(2)}%` : '—'} />
             <ComputedField label="R:R Planned" value={previewRrPlanned != null ? `1:${previewRrPlanned.toFixed(2)}` : '—'} />
           </div>
-          <p className="text-[11px] text-slate-500 mt-3">
+          <p className="mt-3 font-adm-data text-adm-micro text-adm-ink-dim">
             Trade ID is a prediction; the final value is assigned by the database on save. Session and Balance are snapshotted at the moment you log the trade.
           </p>
         </div>
 
-        <div className="pt-4 border-t border-slate-800 flex justify-end">
+        <div className="flex justify-end border-t border-adm-line pt-4">
           <button
             type="submit"
             disabled={isSubmitting || !!balanceError}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-5 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-hi hover:border-adm-up disabled:opacity-40"
           >
-            {isSubmitting ? 'Saving...' : 'Log Trade'}
-            {!isSubmitting && <Send className="w-4 h-4" />}
+            {isSubmitting ? 'Saving…' : 'Log trade'}
+            {!isSubmitting && <Send className="h-3.5 w-3.5" />}
           </button>
         </div>
       </form>
@@ -381,9 +373,9 @@ export function TradeEntry() {
 /** Read-only auto-computed field shown in the New Trade preview. */
 function ComputedField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="text-sm font-bold text-slate-100 tabular-nums truncate" title={value}>{value}</div>
+    <div className="bg-adm-bg0 px-3 py-2">
+      <div className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">{label}</div>
+      <div className="truncate font-adm-data text-adm-sm text-adm-ink-hi" title={value}>{value}</div>
     </div>
   );
 }
