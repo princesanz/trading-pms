@@ -1,6 +1,7 @@
 import { useCryptoData } from '../../hooks/useCryptoData';
 import { ExportPanel, type ExportChoice } from '../../components/ExportPanel';
 import { cashFlowSection } from '../../lib/exportUtils';
+import { PageHeader } from '../../components/adm/PageHeader';
 
 export function CryptoExport() {
   const { futuresTrades, spotHoldings, spotSales, cashFlows } = useCryptoData();
@@ -80,13 +81,16 @@ export function CryptoExport() {
   ];
 
   return (
-    <ExportPanel
-      title="Export — Crypto"
-      description="Download your futures trades, spot holdings, and cash flows as CSV or Excel."
-      desk="crypto"
-      buttonClass="bg-cyan-600 hover:bg-cyan-500"
-      accentText="text-cyan-400"
-      choices={choices}
-    />
+    <div className="space-y-4">
+      <PageHeader desk="crypto" title="Export" sub="futures · spot · cash flows · CSV / Excel" />
+      <ExportPanel
+        title="Export — Crypto"
+        description="Download your futures trades, spot holdings, and cash flows as CSV or Excel."
+        desk="crypto"
+        buttonClass="bg-cyan-600 hover:bg-cyan-500"
+        accentText="text-cyan-400"
+        choices={choices}
+      />
+    </div>
   );
 }
