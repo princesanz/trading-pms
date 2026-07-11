@@ -1,11 +1,19 @@
 import { useMemo } from 'react';
-import { useEquitiesData } from '../../hooks/useEquitiesData';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Briefcase, DollarSign, TrendingUp, TrendingDown, Wallet, Landmark, Banknote } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import { RefreshCw } from 'lucide-react';
+import { useEquitiesData } from '../../hooks/useEquitiesData';
 import { sahamDeskSummary } from '../../lib/deskAggregates';
 import { useSahamPrices } from './StockPortfolio';
-import { PriceStatusBadge } from '../../components/PriceStatusBadge';
+import { cn } from '../../lib/utils';
+import { PageHeader } from '../../components/adm/PageHeader';
+import { StatusBadge, type BadgeKind } from '../../components/adm/StatusBadge';
+import { MetricStrip } from '../../components/adm/MetricStrip';
+import { ChartPanel } from '../../components/adm/ChartPanel';
+import { fmtIdr } from '../../design/format';
+
+/** Maps the saham price feed status onto a StatusBadge kind (1:1 names, but the
+ *  badge type is explicit so a feed-status rename can't silently break). */
+const FEED_KIND: Record<string, BadgeKind> = { live: 'live', stale: 'stale', error: 'error', loading: 'loading' };
 
 export function EquitiesDashboard() {
   const { holdings, dividends, cashFlows, loading } = useEquitiesData();
@@ -29,7 +37,7 @@ export function EquitiesDashboard() {
     // Equity / P&L / Modal Awal via the shared desk-summary helper (native IDR) —
     // the SAME one the Overview uses, so the two can never drift.
     const desk = sahamDeskSummary(cashFlows, holdings);
-    
+
     const liveEquity = desk.funding + desk.trading + totalPortfolioValue;
     const livePnl = liveEquity - desk.modalAwal;
 
@@ -44,11 +52,11 @@ export function EquitiesDashboard() {
     };
   }, [activeHoldings, holdings, dividends, cashFlows, livePrices]);
 
-  const topHoldingsData = useMemo(() =>
+  const topHoldings = useMemo(() =>
     activeHoldings
+      .slice()
       .sort((a, b) => b.total_cost_basis - a.total_cost_basis)
-      .slice(0, 10)
-      .map(h => ({ name: h.emiten, value: h.total_cost_basis })),
+      .slice(0, 10),
   [activeHoldings]);
 
   const dividendByMonth = useMemo(() => {
@@ -63,78 +71,80 @@ export function EquitiesDashboard() {
       .map(([month, total]) => ({ month: format(parseISO(month + '-01'), 'MMM yy'), total }));
   }, [dividends]);
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-slate-400">Loading equities data...</div>;
+  if (loading) return <div className="flex h-64 items-center justify-center font-adm-data text-adm-sm text-adm-ink-dim">Loading equities data…</div>;
+
+  const feedSecs = priceUpdated != null ? Math.max(0, Math.round((Date.now() - priceUpdated) / 1000)) : null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold tracking-tight">Equities Overview</h2>
-        <PriceStatusBadge status={priceStatus} lastUpdated={priceUpdated} onRefresh={refreshPrices} />
-      </div>
-
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Modal Awal" value={`Rp${stats.modalAwal.toLocaleString()}`} subtitle="Net capital in/out" icon={<Banknote className="text-purple-500" />} />
-        <StatCard title="Funding Account" value={`Rp${stats.funding.toLocaleString()}`} subtitle="External deposits" icon={<Landmark className="text-purple-500" />} />
-        <StatCard title="Trading Account" value={`Rp${stats.trading.toLocaleString()}`} subtitle="Available to trade" icon={<Wallet className="text-purple-500" />} />
-        <StatCard title="Portfolio Value" value={`Rp${stats.totalPortfolioValue.toLocaleString()}`} subtitle="Live value" icon={<Briefcase className="text-amber-500" />} />
-        <StatCard title="Total P&L" value={`${stats.totalPnl >= 0 ? '+' : '-'}Rp${Math.abs(stats.totalPnl).toLocaleString()}`} subtitle="Equity − Modal Awal" valueClass={stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} icon={stats.totalPnl >= 0 ? <TrendingUp className="text-emerald-500" /> : <TrendingDown className="text-rose-500" />} />
-        <StatCard title="Total Dividends" value={`Rp${stats.totalDividends.toLocaleString()}`} subtitle={`${dividends.length} entries`} icon={<DollarSign className="text-emerald-500" />} />
-        <StatCard title="Active Holdings" value={stats.numHoldings.toString()} icon={<TrendingUp className="text-blue-500" />} />
-      </div>
-
-      {/* Top Holdings + Dividend Timeline */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <h3 className="text-lg font-medium mb-4">Top Holdings by Cost Basis</h3>
-          <div className="h-64">
-            {topHoldingsData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topHoldingsData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                  <XAxis type="number" stroke="#64748b" tickFormatter={val => `Rp${(val / 1_000_000).toFixed(1)}M`} />
-                  <YAxis type="category" dataKey="name" stroke="#64748b" width={60} tick={{ fontSize: 12 }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} formatter={(val: any) => [`Rp${Number(val).toLocaleString()}`, 'Cost Basis']} />
-                  <Bar dataKey="value" fill="#f59e0b" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-500 text-sm">No holdings yet.</div>
-            )}
+    <div className="space-y-4">
+      <PageHeader
+        desk="saham"
+        title="Equities Desk"
+        sub="stocks · dividends"
+        commandHint
+        right={
+          <div className="flex items-center gap-2">
+            {stats.numHoldings > 0 && <StatusBadge kind="open" label={`${stats.numHoldings} HELD`} />}
+            <StatusBadge
+              kind={FEED_KIND[priceStatus] ?? 'loading'}
+              detail={priceStatus === 'live' && feedSecs != null ? `${feedSecs}s ago` : undefined}
+              title="Market-proxy feed"
+            />
+            <button
+              onClick={refreshPrices}
+              title="Refresh prices"
+              aria-label="Refresh prices"
+              className="flex items-center justify-center rounded-adm-sm border border-adm-line p-1 text-adm-ink-mid hover:bg-adm-bg2"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', priceStatus === 'loading' && 'animate-spin')} />
+            </button>
           </div>
-        </div>
+        }
+      />
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <h3 className="text-lg font-medium mb-4">Dividend Income Timeline</h3>
-          <div className="h-64">
-            {dividendByMonth.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dividendByMonth}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                  <XAxis dataKey="month" stroke="#64748b" tick={{ fontSize: 12 }} />
-                  <YAxis stroke="#64748b" tickFormatter={val => `Rp${(val / 1000).toFixed(0)}K`} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} formatter={(val: any) => [`Rp${Number(val).toLocaleString()}`, 'Net Dividend']} />
-                  <Bar dataKey="total" fill="#10b981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-500 text-sm">No dividend data yet.</div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+      {/* Capital strip — IDR. Portfolio value & P&L reflect the live feed (60s
+          poll); a poll is a discrete refresh, so numbers swap, never animate. */}
+      <MetricStrip
+        items={[
+          { label: 'Modal Awal', value: stats.modalAwal, format: 'idr', sub: 'net capital in/out' },
+          { label: 'Funding', value: stats.funding, format: 'idr', sub: 'external deposits' },
+          { label: 'Trading', value: stats.trading, format: 'idr', sub: 'available to trade' },
+          { label: 'Portfolio Value', value: stats.totalPortfolioValue, format: 'idr', emphasis: true, sub: 'live (cost basis if unpriced)' },
+          { label: 'Total P&L', value: stats.totalPnl, format: 'signedIdr', sub: 'equity − modal awal' },
+        ]}
+      />
 
-function StatCard({ title, value, subtitle, icon, valueClass }: { title: string; value: string; subtitle?: string; icon: React.ReactNode; valueClass?: string }) {
-  return (
-    <div className="bg-slate-900 border border-slate-800 p-5 rounded-xl flex items-center gap-4">
-      <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">{icon}</div>
-      <div>
-        <p className="text-sm font-medium text-slate-400">{title}</p>
-        <p className={`text-xl font-bold tracking-tight ${valueClass ?? 'text-slate-100'}`}>{value}</p>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+      {/* Performance strip — realized only, never re-renders on a tick. */}
+      <MetricStrip
+        items={[
+          { label: 'Active holdings', value: String(stats.numHoldings), tone: 'neutral' },
+          { label: 'Total dividends', value: stats.totalDividends, format: 'idr', tone: 'neutral', sub: `${dividends.length} entries` },
+        ]}
+      />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ChartPanel
+          type="bars"
+          title="Top holdings by cost basis"
+          note={`${topHoldings.length} shown`}
+          x={topHoldings.map((_, i) => i)}
+          xKind="category"
+          xLabels={topHoldings.map(h => h.emiten)}
+          series={[{ label: 'COST', data: topHoldings.map(h => h.total_cost_basis), tone: 'saham' }]}
+          valueFormat={n => fmtIdr(n)}
+          height={280}
+        />
+        <ChartPanel
+          type="bars"
+          title="Dividend income timeline"
+          note={dividendByMonth.length > 0 ? `last ${dividendByMonth.length} mo` : 'no data'}
+          x={dividendByMonth.map((_, i) => i)}
+          xKind="category"
+          xLabels={dividendByMonth.map(d => d.month)}
+          series={[{ label: 'NET DIV', data: dividendByMonth.map(d => d.total), tone: 'up' }]}
+          valueFormat={n => fmtIdr(n)}
+          height={280}
+        />
       </div>
     </div>
   );
