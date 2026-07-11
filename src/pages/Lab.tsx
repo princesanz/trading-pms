@@ -84,6 +84,43 @@ function RawCounts({ fetched }: { fetched: number }) {
   );
 }
 
+/* Prints the live session's auth.uid() — the JWT `sub` claim that RLS's
+ * auth.uid() reads server-side — for byte-for-byte comparison against the
+ * admin_full_access policy UID. No theory: just shows the actual value. */
+const EXPECTED_ADMIN_UID = '022f007f-6498-4e05-b20f-15d4a2f94051';
+function SessionIdentity() {
+  const [uid, setUid] = useState<string | null | undefined>(undefined);
+  const [email, setEmail] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (!alive) return;
+      if (error) setErr(error.message);
+      setUid(data.user?.id ?? null);
+      setEmail(data.user?.email ?? null);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const match = uid === EXPECTED_ADMIN_UID;
+  return (
+    <div className="rounded-adm border border-adm-line2 bg-adm-bg1 p-3">
+      <p className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">live session identity (auth.uid = JWT sub)</p>
+      <div className="mt-2 space-y-0.5 font-adm-data text-adm-xs">
+        <div className="text-adm-ink-mid">email: <span className="text-adm-ink-hi select-all">{email ?? '—'}</span></div>
+        <div className="text-adm-ink-mid">session uid: <span className="text-adm-ink-hi select-all">{uid === undefined ? '…' : uid ?? 'NULL (no session)'}</span> <span className="text-adm-ink-dim">(len {uid?.length ?? 0})</span></div>
+        <div className="text-adm-ink-mid">policy uid:&nbsp; <span className="text-adm-ink-hi select-all">{EXPECTED_ADMIN_UID}</span> <span className="text-adm-ink-dim">(len {EXPECTED_ADMIN_UID.length})</span></div>
+        <div className="pt-1">
+          {uid === undefined ? null : <StatusBadge kind={match ? 'win' : 'loss'} label={match ? 'UID MATCH' : 'UID MISMATCH'} />}
+        </div>
+      </div>
+      {err && <p className="mt-1 font-adm-data text-adm-micro text-adm-down">getUser error: {err}</p>}
+    </div>
+  );
+}
+
 function TradeStatsVerification() {
   const forex = usePortfolioData();
   const crypto = useCryptoData();
@@ -131,6 +168,7 @@ function TradeStatsVerification() {
 
   return (
     <div className="space-y-2">
+      <SessionIdentity />
       <RawCounts fetched={forex.trades.length} />
       <div className="overflow-x-auto rounded-adm border border-adm-line">
         <table className="w-full font-adm-data text-adm-xs">
