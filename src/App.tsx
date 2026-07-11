@@ -38,8 +38,6 @@ import { SahamCashFlow } from './pages/saham/SahamCashFlow';
 // Export pages — lazy-loaded so the heavy xlsx dependency stays out of the initial bundle.
 // (.then maps the named export onto `default`, which React.lazy requires.)
 const ForexExport = lazy(() => import('./pages/ForexExport').then(m => ({ default: m.ForexExport })));
-// TEMPORARY Phase 0 review route — delete together with src/pages/Lab.tsx before Phase 1 ships.
-const Lab = lazy(() => import('./pages/Lab').then(m => ({ default: m.Lab })));
 const CryptoExport = lazy(() => import('./pages/crypto/CryptoExport').then(m => ({ default: m.CryptoExport })));
 const SahamExport = lazy(() => import('./pages/saham/SahamExport').then(m => ({ default: m.SahamExport })));
 
@@ -117,8 +115,6 @@ export default function App() {
             {/* Admin-only — write forms, cash flow, exports. These need no live-price
                 providers (they compute from realized data), so they sit outside them. */}
             <Route element={<RequireAdmin />}>
-              {/* TEMPORARY Phase 0 component lab — remove before Phase 1 ships. */}
-              <Route path="/lab" element={<Suspense fallback={exportFallback}><Lab /></Suspense>} />
               <Route path="/trade/new" element={<TradeEntry />} />
               <Route path="/cashflow" element={<CashFlow />} />
               <Route path="/export" element={<Suspense fallback={exportFallback}><ForexExport /></Suspense>} />
