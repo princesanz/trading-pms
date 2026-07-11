@@ -18,6 +18,7 @@ import { fmtUsd, fmtSignedUsd } from '../design/format';
 import { color } from '../design/tokens';
 import { usePortfolioData } from '../hooks/useSupabase';
 import { useCryptoData } from '../hooks/useCryptoData';
+import { useEquitiesData } from '../hooks/useEquitiesData';
 import { winLossStats, maxDrawdownPct } from '../lib/tradeStats';
 import { forexDeskSummary } from '../lib/deskAggregates';
 
@@ -134,49 +135,68 @@ function SessionIdentity() {
   );
 }
 
+type VRow = {
+  desk: string; closed: number; oldWinRate: number; newWinRate: number;
+  wl: string; oldDd: number; newDd: number; match: boolean; na: boolean; note?: string;
+};
+
 function TradeStatsVerification() {
   const forex = usePortfolioData();
   const crypto = useCryptoData();
+  const saham = useEquitiesData();
   const forexPrices = useForexPriceMap();
 
-  const rows = useMemo(() => {
+  const rows = useMemo<VRow[]>(() => {
     const fxClosed = forex.trades.filter(t => t.status === 'Closed');
     const crClosed = crypto.futuresTrades.filter(t => t.status === 'Closed');
-    const mk = (desk: string, closed: { net_pnl?: number | null; saldo_akun?: number | null }[], seed: number) => {
+    const mk = (desk: string, closed: { net_pnl?: number | null; saldo_akun?: number | null }[], seed: number): VRow => {
       const oldS = { ...oldWinLoss(closed), maxDrawdown: oldMaxDrawdown(closed, seed) };
       const newS = { ...winLossStats(closed), maxDrawdown: maxDrawdownPct(closed, seed) };
       return {
-        desk,
-        closed: closed.length,
-        oldWinRate: oldS.winRate,
-        newWinRate: newS.winRate,
+        desk, closed: closed.length,
+        oldWinRate: oldS.winRate, newWinRate: newS.winRate,
         wl: `${newS.wonCount}W/${newS.lostCount}L`,
-        oldDd: oldS.maxDrawdown,
-        newDd: newS.maxDrawdown,
+        oldDd: oldS.maxDrawdown, newDd: newS.maxDrawdown,
         match: oldS.winRate === newS.winRate && oldS.maxDrawdown === newS.maxDrawdown && oldS.wonCount === newS.wonCount && oldS.lostCount === newS.lostCount,
+        na: false,
       };
     };
+    // Combined win-rate over the trade-based desks (Forex + Crypto pooled). Drawdown
+    // can't pool across desks (separate saldo_akun series) → n/a. Reconciles: pooled
+    // W/L must equal the sum of the two desks' W/L.
+    const pool = [...fxClosed, ...crClosed];
+    const cOld = oldWinLoss(pool), cNew = winLossStats(pool);
     return [
       mk('Forex', fxClosed, forex.settings?.modal_awal || 0),
       mk('Crypto futures', crClosed, crypto.settings?.modal_awal_crypto || 0),
+      // Saham is a holdings model (no per-trade net_pnl/saldo_akun) → win-rate/DD n/a.
+      // Row proves the desk's hook is wired; `closed` shows its transaction count.
       {
-        desk: 'ALL (fx+cr)',
-        closed: fxClosed.length + crClosed.length,
-        oldWinRate: NaN, newWinRate: NaN, wl: '—', oldDd: NaN, newDd: NaN, match: true,
+        desk: 'Saham (holdings)', closed: saham.transactions.length,
+        oldWinRate: NaN, newWinRate: NaN, wl: '—', oldDd: NaN, newDd: NaN,
+        match: true, na: true, note: `${saham.holdings.length} holdings · win-rate/DD n/a`,
+      },
+      {
+        desk: 'ALL trade desks (fx+cr)', closed: pool.length,
+        oldWinRate: cOld.winRate, newWinRate: cNew.winRate,
+        wl: `${cNew.wonCount}W/${cNew.lostCount}L`,
+        oldDd: NaN, newDd: NaN,
+        match: cOld.winRate === cNew.winRate && cOld.wonCount === cNew.wonCount && cOld.lostCount === cNew.lostCount,
+        na: false, note: 'pooled win-rate; DD n/a across desks',
       },
     ];
-  }, [forex.trades, crypto.futuresTrades, forex.settings, crypto.settings]);
+  }, [forex.trades, crypto.futuresTrades, saham.transactions, saham.holdings, forex.settings, crypto.settings]);
 
   const fxSummary = useMemo(
     () => forexDeskSummary(forex.cashFlows, forex.trades, forexPrices),
     [forex.cashFlows, forex.trades, forexPrices]
   );
 
-  if (forex.loading || crypto.loading) {
+  if (forex.loading || crypto.loading || saham.loading) {
     return <p className="font-adm-data text-adm-xs text-adm-ink-dim">Loading real journal data…</p>;
   }
-  if (forex.error || crypto.error) {
-    return <p className="font-adm-data text-adm-xs text-adm-down">Fetch error: {forex.error ?? crypto.error} (admin session required — raw tables are RLS-gated)</p>;
+  if (forex.error || crypto.error || saham.error) {
+    return <p className="font-adm-data text-adm-xs text-adm-down">Fetch error: {forex.error ?? crypto.error ?? saham.error} (admin session required — raw tables are RLS-gated)</p>;
   }
 
   return (
@@ -200,14 +220,21 @@ function TradeStatsVerification() {
           <tbody>
             {rows.map(r => (
               <tr key={r.desk} className="border-b border-adm-line text-adm-ink-hi">
-                <td className="px-3 py-2 text-adm-ink-mid">{r.desk}</td>
+                <td className="px-3 py-2 text-adm-ink-mid">
+                  {r.desk}
+                  {r.note && <span className="text-adm-ink-dim"> · {r.note}</span>}
+                </td>
                 <td className="px-3 py-2 text-right">{r.closed}</td>
                 <td className="px-3 py-2 text-right">{Number.isNaN(r.oldWinRate) ? '—' : `${r.oldWinRate.toFixed(4)}%`}</td>
                 <td className="px-3 py-2 text-right">{Number.isNaN(r.newWinRate) ? '—' : `${r.newWinRate.toFixed(4)}%`}</td>
                 <td className="px-3 py-2 text-right">{r.wl}</td>
                 <td className="px-3 py-2 text-right">{Number.isNaN(r.oldDd) ? '—' : `${r.oldDd.toFixed(4)}%`}</td>
                 <td className="px-3 py-2 text-right">{Number.isNaN(r.newDd) ? '—' : `${r.newDd.toFixed(4)}%`}</td>
-                <td className="px-3 py-2"><StatusBadge kind={r.match ? 'win' : 'loss'} label={r.match ? 'MATCH' : 'MISMATCH'} /></td>
+                <td className="px-3 py-2">
+                  {r.na
+                    ? <StatusBadge kind="neutral" label="N/A" />
+                    : <StatusBadge kind={r.match ? 'win' : 'loss'} label={r.match ? 'MATCH' : 'MISMATCH'} />}
+                </td>
               </tr>
             ))}
           </tbody>
