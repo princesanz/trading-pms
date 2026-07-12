@@ -166,8 +166,21 @@ export function AppLayout() {
 
           {/* Desk navigation — admin only. Public visitors see just the Overview. */}
           {isAdmin && (<>
+            {/* Desk switcher — collapsed = single active-desk cell (glanceable); switching
+                is deferred to expanding the rail. The full FX/CR/EQ strip is expanded-only. */}
+            {collapsed && (
+              <Link
+                to={deskHome[desk]}
+                title={deskName[desk]}
+                className="relative hidden md:flex md:mx-2 md:mt-3 items-center justify-center h-8 rounded-adm-sm border border-adm-line bg-adm-bg2 transition-colors duration-[120ms]"
+              >
+                <span aria-hidden className={cn('absolute left-0 top-0 h-full w-0.5', config.tick)} />
+                {(() => { const DeskIcon = config.icon; return <DeskIcon className={cn('w-3.5 h-3.5 shrink-0', config.text)} />; })()}
+              </Link>
+            )}
+
             {/* Desk switcher — square hairline strip, mono codes, desk-hue tick on the active cell */}
-            <div className={cn('flex shrink-0 md:mx-2 md:mt-3 rounded-adm-sm border border-adm-line divide-x divide-adm-line overflow-hidden', collapsed && 'md:flex-col md:divide-x-0 md:divide-y')}>
+            <div className={cn('flex shrink-0 rounded-adm-sm border border-adm-line divide-x divide-adm-line overflow-hidden md:mx-2 md:mt-3', collapsed && 'md:hidden')}>
               {deskOrder.map((d) => {
                 const c = deskConfig[d];
                 const active = !overview && desk === d;
@@ -176,7 +189,6 @@ export function AppLayout() {
                   <Link
                     key={d}
                     to={deskHome[d]}
-                    title={collapsed ? deskName[d] : undefined}
                     className={cn(
                       'relative flex-1 flex items-center justify-center gap-1.5 h-8 px-2 font-adm-data text-adm-micro uppercase transition-colors duration-[120ms]',
                       active ? cn('bg-adm-bg2', c.text) : 'text-adm-ink-dim hover:text-adm-ink-mid hover:bg-adm-bg2'
@@ -184,7 +196,7 @@ export function AppLayout() {
                   >
                     {active && <span aria-hidden className={cn('absolute left-0 top-0 h-0.5 w-full', c.tick)} />}
                     <DeskIcon className="w-3 h-3 shrink-0" />
-                    <span className={cn(collapsed && 'md:hidden')}>{c.code}</span>
+                    <span>{c.code}</span>
                   </Link>
                 );
               })}
