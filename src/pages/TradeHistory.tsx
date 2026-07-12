@@ -11,6 +11,7 @@ import { sortClosedDesc } from '../lib/sortTrades';
 import { PageHeader } from '../components/adm/PageHeader';
 import { StatusBadge } from '../components/adm/StatusBadge';
 import { DataTable, type Column } from '../components/adm/DataTable';
+import { HScrollTable } from '../components/HScrollTable';
 import { fmtSignedUsd, fmtPrice, fmtNum } from '../design/format';
 import type { Trade } from '../types';
 
@@ -216,17 +217,20 @@ export function TradeHistory() {
 
       {/* Pre-sorted by the shared comparator; header clicks re-sort by column.
           Always paginated at 10 rows/page (virtualization disabled here). */}
-      <DataTable
-        columns={columns}
-        rows={filteredTrades}
-        rowKey={t => t.id}
-        minWidth={1760}
-        noTruncate
-        pageSize={10}
-        virtualizeOver={Infinity}
-        rowHeight={42}
-        empty="No closed trades in the journal yet."
-      />
+      <HScrollTable>
+        <DataTable
+          columns={columns}
+          rows={filteredTrades}
+          rowKey={t => t.id}
+          minWidth={1760}
+          noTruncate
+          hScroll={false}
+          pageSize={10}
+          virtualizeOver={Infinity}
+          rowHeight={42}
+          empty="No closed trades in the journal yet."
+        />
+      </HScrollTable>
 
       {/* Edit drawer — same fields + mutation path as the old inline form. */}
       {editingTrade && (
