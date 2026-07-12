@@ -138,7 +138,7 @@ export function TradeHistory() {
     // 11px/0.08em); SETUP·PSYCH is two concatenated free-text tags, floored at 300px
     // (fits e.g. "Liquidity Grab · FOMO / Revenge Trade") and grows via 1fr.
     { key: 'session', header: 'Session', width: '160px', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{formatSession(t.session)}</span> },
-    { key: 'tags', header: 'Setup · Psych', width: 'minmax(300px,1fr)', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{t.setup_tag?.name || '—'} · {t.psychology_tag?.name || '—'}</span> },
+    { key: 'tags', header: 'Setup · Psych', width: 'minmax(300px,1fr)', wrap: true, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{t.setup_tag?.name || '—'} · {t.psychology_tag?.name || '—'}</span> },
     { key: 'tanggal_tutup', header: 'Closed', width: '108px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yyyy') : '—'}</span> },
     { key: 'point_value', header: 'Pt val', numeric: true, width: '70px', cell: t => formatNum(t.point_value) },
     { key: 'risk_usd', header: 'Risk $', numeric: true, width: '86px', sortValue: t => t.risk_usd ?? null, cell: t => formatUsd(t.risk_usd) },

@@ -29,6 +29,9 @@ export type Column<T> = {
   sortValue?: (row: T) => string | number | null | undefined;
   /** Custom cell renderer; default renders String(row[key] ?? '—'). */
   cell?: (row: T) => ReactNode;
+  /** In noTruncate mode, lets this column wrap to a max of 2 lines instead of
+   *  staying single-line — a fallback for values wider than the column floor. */
+  wrap?: boolean;
 };
 
 type Sort = { key: string; dir: 'asc' | 'desc' };
@@ -133,7 +136,9 @@ export function DataTable<T>({
           key={c.key}
           role="cell"
           className={cn(
-            noTruncate ? 'whitespace-nowrap px-3' : 'truncate px-3',
+            c.wrap && noTruncate ? 'line-clamp-2 whitespace-normal break-words leading-4 px-3'
+              : noTruncate ? 'whitespace-nowrap px-3'
+              : 'truncate px-3',
             cellText,
             c.numeric ? 'text-right font-adm-data text-adm-ink-hi tabular-nums' : 'font-adm-ui text-adm-ink-mid',
             c.align === 'right' && 'text-right',
