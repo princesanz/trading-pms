@@ -3,27 +3,56 @@ import { usePortfolioData } from '../hooks/useSupabase';
 import { format, parseISO } from 'date-fns';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
-import { Check, X, DollarSign, Trash2, Pencil } from 'lucide-react';
-import { useForexPrices } from '../contexts/ForexPriceProvider';
+import { RefreshCw, X } from 'lucide-react';
+import { useForexPolling, useForexPrice, useForexFeedMeta, refreshForex } from '../state/prices';
 import { getContractSize } from '../types';
 import { forexUnrealized, isForexLiveSymbol } from '../lib/forexLivePnl';
-import { PriceStatusBadge } from '../components/PriceStatusBadge';
 import { useAuth } from '../contexts/AuthProvider';
 import { recalculateBalances } from '../lib/forexBalances';
 import { formatTradeId, formatUsd, formatPct, formatRr, formatNum, formatSession } from '../lib/tradeFormat';
+import { PageHeader } from '../components/adm/PageHeader';
+import { StatusBadge } from '../components/adm/StatusBadge';
+import { DataTable, type Column } from '../components/adm/DataTable';
 import { HScrollTable } from '../components/HScrollTable';
+import { fmtSignedUsd, fmtPrice, fmtNum } from '../design/format';
 import type { Trade, TradePosition } from '../types';
 
+// XAUUSD is always quoted to 2 decimals; other FX pairs keep fmtPrice's 5-digit
+// precision. Display-only — mirrors the Trade Journal. Never used in P&L math.
+const fmtInstrPrice = (v: number, instr: string) => (instr === 'XAUUSD' ? fmtNum(v, 2) : fmtPrice(v));
+
+/* Per-row live cells — each subscribes to ONE symbol in the price store, so a
+ * 5s tick re-renders only the mark/uPnL spans of rows with a live feed. Raw
+ * number swap, no animation (motion rule). */
+function LiveMark({ instrument }: { instrument: string }) {
+  const live = isForexLiveSymbol(instrument);
+  const price = useForexPrice(live ? instrument.toUpperCase() : '');
+  if (!live || price == null) return <span className="text-adm-ink-dim">—</span>;
+  return <span className="text-adm-ink-hi">{fmtInstrPrice(price, instrument)}</span>;
+}
+
+function LiveUPnl({ trade }: { trade: Trade }) {
+  const live = isForexLiveSymbol(trade.instrumen);
+  const price = useForexPrice(live ? trade.instrumen.toUpperCase() : '');
+  if (!live || price == null) return <span className="text-adm-ink-dim">—</span>;
+  const uPnl = forexUnrealized(trade, price);
+  return <span className={uPnl < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(uPnl)}</span>;
+}
+
+const inputCls = 'w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none';
+const labelCls = 'mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim';
+
 export function OpenPositions() {
+  useForexPolling();
   const { trades, setupTags, psychologyTags, instrumentSpecs, loading, error: fetchError, refetch } = usePortfolioData();
-  const { prices, status, lastUpdated, refresh } = useForexPrices();
+  const feed = useForexFeedMeta();
   const { isAdmin } = useAuth();
 
   const [filterInstrument, setFilterInstrument] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Close form state (per-row)
-  const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
+  // Close form state (drawer; same fields + mutation as the old inline form)
+  const [closingTrade, setClosingTrade] = useState<Trade | null>(null);
   const [closePnl, setClosePnl] = useState('');
   const [closeExit, setCloseExit] = useState('');
   const [closeDate, setCloseDate] = useState(new Date().toISOString().split('T')[0]);
@@ -32,7 +61,7 @@ export function OpenPositions() {
   const [editTrade, setEditTrade] = useState<Trade | null>(null);
   const [editForm, setEditForm] = useState({ instrumen: '', posisi: 'Buy' as TradePosition, harga_entry: '', sl: '', setup: '', psikologi: '' });
 
-  const resetClose = () => { setClosingTradeId(null); setClosePnl(''); setCloseExit(''); setCloseDate(new Date().toISOString().split('T')[0]); };
+  const resetClose = () => { setClosingTrade(null); setClosePnl(''); setCloseExit(''); setCloseDate(new Date().toISOString().split('T')[0]); };
 
   const openTrades = useMemo(() => trades.filter(t => t.status === 'Open'), [trades]);
 
@@ -132,222 +161,151 @@ export function OpenPositions() {
     }
   };
 
-  if (loading) return <div className="p-8 text-slate-400">Loading open positions...</div>;
+  const columns: Column<Trade>[] = [
+    { key: 'id', header: 'ID', width: '84px', sortValue: t => t.trade_number ?? null, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-dim">{formatTradeId(t.trade_number)}</span> },
+    // 124px so the mono date isn't flush against Instrument — see TradeHistory.
+    { key: 'tanggal', header: 'Opened', width: '124px', cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
+    { key: 'instrumen', header: 'Instrument', width: '100px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.instrumen}</span> },
+    { key: 'lot', header: 'Lot', numeric: true, width: '64px', cell: t => (t.lot != null ? t.lot.toFixed(2) : '—') },
+    { key: 'posisi', header: 'Side', width: '76px', cell: t => <StatusBadge kind={t.posisi === 'Buy' ? 'long' : 'short'} label={t.posisi.toUpperCase()} /> },
+    { key: 'harga_entry', header: 'Entry', numeric: true, width: '96px', cell: t => fmtInstrPrice(t.harga_entry ?? 0, t.instrumen) },
+    { key: 'sl', header: 'SL', numeric: true, width: '96px', cell: t => (t.sl ? <span className="text-adm-down">{fmtInstrPrice(t.sl, t.instrumen)}</span> : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'tp', header: 'TP', numeric: true, width: '96px', cell: t => (t.tp ? <span className="text-adm-up">{fmtInstrPrice(t.tp, t.instrumen)}</span> : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'mark', header: 'Mark', numeric: true, width: '96px', sortValue: () => null, cell: t => <LiveMark instrument={t.instrumen} /> },
+    // Widths sized to longest real values so nowrap never overlaps (same as the
+    // Journal): SESSION fits the bounded enum "London/NY Overlap"; SETUP·PSYCH is
+    // two joined free-text tags, floored at 300px and wraps to 2 lines past that.
+    { key: 'session', header: 'Session', width: '160px', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{formatSession(t.session)}</span> },
+    { key: 'tags', header: 'Setup · Psych', width: 'minmax(300px,1fr)', wrap: true, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{t.setup_tag?.name || '—'} · {t.psychology_tag?.name || '—'}</span> },
+    { key: 'point_value', header: 'Pt val', numeric: true, width: '70px', cell: t => formatNum(t.point_value) },
+    { key: 'risk_usd', header: 'Risk $', numeric: true, width: '90px', sortValue: t => t.risk_usd ?? null, cell: t => formatUsd(t.risk_usd) },
+    { key: 'risk_pct', header: 'Risk %', numeric: true, width: '80px', cell: t => formatPct(t.risk_pct) },
+    { key: 'rr_planned', header: 'R:R', numeric: true, width: '70px', cell: t => formatRr(t.rr_planned) },
+    { key: 'upnl', header: 'Unrlzd P&L', numeric: true, width: '120px', sortValue: () => null, cell: t => <LiveUPnl trade={t} /> },
+    {
+      key: 'actions', header: '', width: '150px', align: 'right',
+      cell: t => isAdmin ? (
+        <span className="flex items-center justify-end gap-1">
+          <button onClick={() => openEditDrawer(t)} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-ink-mid hover:bg-adm-bg2" title="Edit position">Edit</button>
+          <button onClick={() => { setClosingTrade(t); setClosePnl(''); setCloseExit(''); setCloseDate(new Date().toISOString().split('T')[0]); }} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-desk-forex hover:bg-adm-bg2" title="Close position & enter PnL">Close</button>
+          <button onClick={() => handleDelete(t.id)} disabled={isProcessing} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-down hover:bg-adm-bg2 disabled:opacity-40" title="Delete position">Del</button>
+        </span>
+      ) : null,
+    },
+  ];
+
+  if (loading) return <div className="flex h-64 items-center justify-center font-adm-data text-adm-sm text-adm-ink-dim">Loading open positions…</div>;
+
+  const feedSecs = feed.lastUpdated != null ? Math.max(0, Math.round((Date.now() - feed.lastUpdated) / 1000)) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <PageHeader
+        desk="forex"
+        title="Open Positions"
+        sub="live unrealized P&L · manage, close, delete"
+        right={
+          <div className="flex items-center gap-2">
+            <StatusBadge kind={feed.status} detail={feed.status === 'live' && feedSecs != null ? `${feedSecs}s ago` : undefined} title="gold-api feed" />
+            <button onClick={refreshForex} title="Refresh prices" aria-label="Refresh prices" className="flex items-center justify-center rounded-adm-sm border border-adm-line p-1 text-adm-ink-mid hover:bg-adm-bg2">
+              <RefreshCw className={cn('h-3.5 w-3.5', feed.status === 'loading' && 'animate-spin')} />
+            </button>
+            <select
+              value={filterInstrument}
+              onChange={e => setFilterInstrument(e.target.value)}
+              className="rounded-adm-sm border border-adm-line bg-adm-bg1 px-2 py-1 font-adm-data text-adm-xs text-adm-ink-mid focus:border-adm-line2 focus:outline-none"
+            >
+              <option value="">All instruments</option>
+              {instruments.map(inst => <option key={inst} value={inst}>{inst}</option>)}
+            </select>
+          </div>
+        }
+      />
+
       {fetchError && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm">
+        <p className="rounded-adm border border-adm-down/40 bg-adm-down-fill px-3 py-2 font-adm-data text-adm-xs text-adm-down">
           Failed to load positions: {fetchError} — the list below may be stale.{' '}
-          <button onClick={() => refetch()} className="underline hover:text-rose-300">Retry</button>
+          <button onClick={() => refetch()} className="underline hover:text-adm-ink-hi">Retry</button>
+        </p>
+      )}
+
+      <HScrollTable>
+        <DataTable
+          columns={columns}
+          rows={filteredTrades}
+          rowKey={t => t.id}
+          minWidth={1876}
+          noTruncate
+          hScroll={false}
+          rowHeight={42}
+          empty="No open positions."
+        />
+      </HScrollTable>
+
+      {/* Close drawer — same fields + mutation path as the old inline form. */}
+      {closingTrade && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-[rgba(10,12,14,0.85)]" onClick={() => !isProcessing && resetClose()}>
+          <div className="h-full w-full max-w-sm overflow-y-auto border-l border-adm-line2 bg-adm-bg1 p-5" onClick={e => e.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">Close position</p>
+                <h3 className="font-adm-ui text-adm-lg font-medium text-adm-ink-hi">
+                  {closingTrade.instrumen} · {formatTradeId(closingTrade.trade_number)}
+                </h3>
+              </div>
+              <button onClick={resetClose} className="text-adm-ink-dim hover:text-adm-ink-hi" title="Cancel" aria-label="Cancel">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className={labelCls}>Net P&L (USD)</label>
+                <input type="number" value={closePnl} onChange={e => setClosePnl(e.target.value)} className={inputCls} placeholder="e.g. 120.50 or -45" autoFocus />
+              </div>
+              <div>
+                <label className={labelCls}>Exit price (optional)</label>
+                <input type="number" value={closeExit} onChange={e => setCloseExit(e.target.value)} className={inputCls} placeholder="Leave blank to skip" />
+              </div>
+              <div>
+                <label className={labelCls}>Close date</label>
+                <input type="date" value={closeDate} onChange={e => setCloseDate(e.target.value)} className={inputCls} />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => handleClosePosition(closingTrade.id)}
+                  disabled={isProcessing}
+                  className="flex-1 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-hi hover:border-adm-up disabled:opacity-40"
+                >
+                  {isProcessing ? 'Closing…' : 'Confirm close'}
+                </button>
+                <button onClick={resetClose} disabled={isProcessing} className="rounded-adm-sm border border-adm-line px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-mid hover:bg-adm-bg2">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Open Positions</h2>
-          <p className="text-sm text-slate-500">Live unrealized P&amp;L — manage, close, or delete</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <PriceStatusBadge status={status} lastUpdated={lastUpdated} onRefresh={refresh} />
-          <select
-            value={filterInstrument}
-            onChange={(e) => setFilterInstrument(e.target.value)}
-            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-emerald-500 outline-none"
-          >
-            <option value="">All Instruments</option>
-            {instruments.map(inst => (
-              <option key={inst} value={inst}>{inst}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <HScrollTable className="bg-slate-900 border border-slate-800 rounded-xl">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-            <tr>
-              <th className="px-4 py-3">ID</th>
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Instrument</th>
-              <th className="px-4 py-3 text-right">Lot</th>
-              <th className="px-4 py-3">Pos</th>
-              <th className="px-4 py-3">Entry</th>
-              <th className="px-4 py-3">SL</th>
-              <th className="px-4 py-3">TP</th>
-              <th className="px-4 py-3 text-right">Mark</th>
-              <th className="px-4 py-3">Session</th>
-              <th className="px-4 py-3">Setup / Psych</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Pt Val</th>
-              <th className="px-4 py-3 text-right">Risk $</th>
-              <th className="px-4 py-3 text-right">Risk %</th>
-              <th className="px-4 py-3 text-right">R:R Plan</th>
-              <th className="px-4 py-3 text-right">Unrealized P&amp;L</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredTrades.map((trade) => {
-              const markPrice = isForexLiveSymbol(trade.instrumen)
-                ? prices.get(trade.instrumen.toUpperCase())
-                : undefined;
-              const uPnl = forexUnrealized(trade, markPrice);
-              const showLive = isForexLiveSymbol(trade.instrumen) && markPrice != null;
-              return (
-                <tr key={trade.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                  <td className="px-4 py-3 font-mono text-xs text-slate-400 whitespace-nowrap">{formatTradeId(trade.trade_number)}</td>
-                  <td className="px-4 py-3 text-slate-300">{format(parseISO(trade.tanggal), 'dd MMM yyyy')}</td>
-                  <td className="px-4 py-3 font-medium text-slate-200">{trade.instrumen}</td>
-                  <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{trade.lot != null ? trade.lot.toFixed(2) : '-'}</td>
-                  <td className="px-4 py-3">
-                    <span className={cn(
-                      "px-2 py-0.5 rounded text-xs font-medium",
-                      trade.posisi === 'Buy' ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
-                    )}>
-                      {trade.posisi}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">{trade.harga_entry}</td>
-                  <td className={cn("px-4 py-3", trade.sl ? "text-rose-400" : "text-slate-400")}>{trade.sl || '-'}</td>
-                  <td className={cn("px-4 py-3", trade.tp ? "text-emerald-400" : "text-slate-400")}>{trade.tp || '-'}</td>
-                  <td className="px-4 py-3 text-right text-slate-300">
-                    {showLive ? `$${markPrice!.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : <span className="text-slate-500">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-slate-300 whitespace-nowrap text-xs">{formatSession(trade.session)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs text-blue-400">{trade.setup_tag?.name || '-'}</span>
-                      <span className="text-xs text-purple-400">{trade.psychology_tag?.name || '-'}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      Open
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatNum(trade.point_value)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-200 tabular-nums">{formatUsd(trade.risk_usd)}</td>
-                  <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatPct(trade.risk_pct)}</td>
-                  <td className="px-4 py-3 text-right text-slate-300 tabular-nums">{formatRr(trade.rr_planned)}</td>
-                  <td className="px-4 py-3 text-right">
-                    {closingTradeId === trade.id ? (
-                      <div className="flex flex-col items-end gap-1">
-                        <input
-                          type="number"
-                          value={closePnl}
-                          onChange={(e) => setClosePnl(e.target.value)}
-                          className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-emerald-500"
-                          placeholder="Net PnL"
-                          autoFocus
-                        />
-                        <input
-                          type="number"
-                          value={closeExit}
-                          onChange={(e) => setCloseExit(e.target.value)}
-                          className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-emerald-500"
-                          placeholder="Exit price (opt)"
-                        />
-                        <input
-                          type="date"
-                          value={closeDate}
-                          onChange={(e) => setCloseDate(e.target.value)}
-                          className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-emerald-500"
-                          title="Close date"
-                        />
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => handleClosePosition(trade.id)}
-                            disabled={isProcessing}
-                            className="p-1 bg-emerald-600 rounded text-white hover:bg-emerald-500 disabled:opacity-50"
-                            title="Confirm close"
-                          >
-                            <Check className="w-3 h-3" />
-                          </button>
-                          <button
-                            onClick={resetClose}
-                            className="p-1 bg-slate-700 rounded text-white hover:bg-slate-600"
-                            title="Cancel"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : showLive ? (
-                      <span className={cn('font-medium', uPnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                        {uPnl >= 0 ? '+' : ''}${uPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </span>
-                    ) : <span className="text-slate-500">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {isAdmin && closingTradeId !== trade.id && (
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => openEditDrawer(trade)}
-                          className="flex items-center gap-1 text-xs text-slate-300 hover:text-slate-100 bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded transition-colors"
-                          title="Edit position"
-                        >
-                          <Pencil className="w-3 h-3" />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => { setClosingTradeId(trade.id); setClosePnl(''); setCloseExit(''); setCloseDate(new Date().toISOString().split('T')[0]); }}
-                          className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded transition-colors"
-                          title="Close position & enter PnL"
-                        >
-                          <DollarSign className="w-3 h-3" />
-                          Close
-                        </button>
-                        <button
-                          onClick={() => handleDelete(trade.id)}
-                          disabled={isProcessing}
-                          className="text-slate-400 hover:text-rose-400 disabled:opacity-50"
-                          title="Delete position"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {filteredTrades.length === 0 && (
-              <tr>
-                <td colSpan={18} className="px-4 py-8 text-center text-slate-500">No open positions.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </HScrollTable>
 
       {/* Edit drawer */}
       {editTrade && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={() => !isProcessing && setEditTrade(null)}>
-          <div
-            className="w-full max-w-md h-full bg-slate-900 border-l border-slate-800 p-6 overflow-y-auto shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-bold">Edit Position</h3>
-              <button onClick={() => setEditTrade(null)} className="text-slate-400 hover:text-slate-100" title="Close">
-                <X className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex justify-end bg-[rgba(10,12,14,0.85)]" onClick={() => !isProcessing && setEditTrade(null)}>
+          <div className="h-full w-full max-w-md overflow-y-auto border-l border-adm-line2 bg-adm-bg1 p-5" onClick={e => e.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="font-adm-ui text-adm-lg font-medium text-adm-ink-hi">Edit Position</h3>
+              <button onClick={() => setEditTrade(null)} className="text-adm-ink-dim hover:text-adm-ink-hi" title="Close" aria-label="Close">
+                <X className="h-5 w-5" />
               </button>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Instrument</label>
-                <input
-                  type="text"
-                  value={editForm.instrumen}
-                  onChange={(e) => setEditForm(f => ({ ...f, instrumen: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500"
-                />
+                <label className={labelCls}>Instrument</label>
+                <input type="text" value={editForm.instrumen} onChange={e => setEditForm(f => ({ ...f, instrumen: e.target.value }))} className={inputCls} />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Position</label>
+                <label className={labelCls}>Position</label>
                 <div className="flex gap-2">
                   {(['Buy', 'Sell'] as TradePosition[]).map(p => (
                     <button
@@ -355,10 +313,10 @@ export function OpenPositions() {
                       type="button"
                       onClick={() => setEditForm(f => ({ ...f, posisi: p }))}
                       className={cn(
-                        "flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors",
+                        'flex-1 rounded-adm-sm border px-3 py-2 font-adm-data text-adm-xs uppercase',
                         editForm.posisi === p
-                          ? (p === 'Buy' ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" : "bg-rose-500/15 text-rose-400 border-rose-500/40")
-                          : "bg-slate-950 text-slate-400 border-slate-700 hover:text-slate-200"
+                          ? p === 'Buy' ? 'border-adm-up bg-adm-up-fill text-adm-up' : 'border-adm-down bg-adm-down-fill text-adm-down'
+                          : 'border-adm-line bg-adm-bg0 text-adm-ink-dim hover:text-adm-ink-mid'
                       )}
                     >
                       {p}
@@ -369,63 +327,40 @@ export function OpenPositions() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Entry Price</label>
-                  <input
-                    type="number"
-                    value={editForm.harga_entry}
-                    onChange={(e) => setEditForm(f => ({ ...f, harga_entry: e.target.value }))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
+                  <label className={labelCls}>Entry price</label>
+                  <input type="number" value={editForm.harga_entry} onChange={e => setEditForm(f => ({ ...f, harga_entry: e.target.value }))} className={inputCls} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Stop Loss</label>
-                  <input
-                    type="number"
-                    value={editForm.sl}
-                    onChange={(e) => setEditForm(f => ({ ...f, sl: e.target.value }))}
-                    placeholder="Optional"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500"
-                  />
+                  <label className={labelCls}>Stop loss</label>
+                  <input type="number" value={editForm.sl} onChange={e => setEditForm(f => ({ ...f, sl: e.target.value }))} placeholder="Optional" className={inputCls} />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Setup</label>
-                <select
-                  value={editForm.setup}
-                  onChange={(e) => setEditForm(f => ({ ...f, setup: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500"
-                >
+                <label className={labelCls}>Setup</label>
+                <select value={editForm.setup} onChange={e => setEditForm(f => ({ ...f, setup: e.target.value }))} className={inputCls}>
                   <option value="">— None —</option>
                   {setupTags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1">Psychology</label>
-                <select
-                  value={editForm.psikologi}
-                  onChange={(e) => setEditForm(f => ({ ...f, psikologi: e.target.value }))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500"
-                >
+                <label className={labelCls}>Psychology</label>
+                <select value={editForm.psikologi} onChange={e => setEditForm(f => ({ ...f, psikologi: e.target.value }))} className={inputCls}>
                   <option value="">— None —</option>
                   {psychologyTags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
 
-              <div className="flex gap-2 pt-2">
+              <div className="flex gap-2 pt-1">
                 <button
                   onClick={handleSaveEdit}
                   disabled={isProcessing}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+                  className="flex-1 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-hi hover:border-adm-up disabled:opacity-40"
                 >
-                  {isProcessing ? 'Saving...' : 'Save Changes'}
+                  {isProcessing ? 'Saving…' : 'Save changes'}
                 </button>
-                <button
-                  onClick={() => setEditTrade(null)}
-                  disabled={isProcessing}
-                  className="px-4 py-2 rounded-lg text-sm font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors"
-                >
+                <button onClick={() => setEditTrade(null)} disabled={isProcessing} className="rounded-adm-sm border border-adm-line px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-mid hover:bg-adm-bg2">
                   Cancel
                 </button>
               </div>

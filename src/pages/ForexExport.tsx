@@ -1,6 +1,7 @@
 import { usePortfolioData } from '../hooks/useSupabase';
 import { ExportPanel, type ExportChoice } from '../components/ExportPanel';
 import { cashFlowSection } from '../lib/exportUtils';
+import { PageHeader } from '../components/adm/PageHeader';
 
 export function ForexExport() {
   const { trades, cashFlows } = usePortfolioData();
@@ -40,13 +41,16 @@ export function ForexExport() {
   ];
 
   return (
-    <ExportPanel
-      title="Export — Forex"
-      description="Download your Forex trades and cash flows as CSV or Excel."
-      desk="forex"
-      buttonClass="bg-emerald-600 hover:bg-emerald-500"
-      accentText="text-emerald-400"
-      choices={choices}
-    />
+    <div className="space-y-4">
+      <PageHeader desk="forex" title="Export" sub="trades & cash flows · CSV / Excel" />
+      <ExportPanel
+        title="Export — Forex"
+        description="Download your Forex trades and cash flows as CSV or Excel."
+        desk="forex"
+        buttonClass="bg-emerald-600 hover:bg-emerald-500"
+        accentText="text-emerald-400"
+        choices={choices}
+      />
+    </div>
   );
 }

@@ -5,13 +5,22 @@ import * as z from 'zod';
 import { supabase } from '../../lib/supabase';
 import { useCryptoData } from '../../hooks/useCryptoData';
 import { cn } from '../../lib/utils';
-import { Plus, Edit2, Trash2, Wallet, AlertTriangle, DollarSign, Check, X } from 'lucide-react';
+import { Plus, AlertTriangle, Check, X, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { calculateDeskBalances } from '../../lib/balanceCalc';
-import { useCryptoPrices } from '../../contexts/CryptoPriceProvider';
+import { useCryptoPolling, useCryptoPriceMap, useCryptoFeedMeta, refreshCrypto } from '../../state/prices';
 import { resolvePrice, spotMarkToMarket, spotUnrealized } from '../../lib/cryptoLivePnl';
-import { PriceStatusBadge } from '../../components/PriceStatusBadge';
 import { useAuth } from '../../contexts/AuthProvider';
+import { PageHeader } from '../../components/adm/PageHeader';
+import { StatusBadge } from '../../components/adm/StatusBadge';
+import { DataTable, type Column } from '../../components/adm/DataTable';
+import { fmtUsd, fmtSignedUsd, fmtCryptoPrice, fmtNum } from '../../design/format';
+import type { CryptoSpotSale } from '../../types';
+
+const inputCls = 'w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-2 py-1.5 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none';
+const labelCls = 'mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim';
+const thCls = 'px-3 py-2 text-left font-adm-data text-adm-micro uppercase text-adm-ink-dim';
+const thR = `${thCls} text-right`;
 
 const holdingSchema = z.object({
   tanggal_beli: z.string().min(1, 'Date is required'),
@@ -25,8 +34,10 @@ const holdingSchema = z.object({
 type HoldingFormValues = z.infer<typeof holdingSchema>;
 
 export function SpotHoldings() {
+  useCryptoPolling();
   const { spotHoldings, spotSales, refetch, cashFlows } = useCryptoData();
-  const { prices, status, lastUpdated, refresh } = useCryptoPrices();
+  const prices = useCryptoPriceMap();
+  const feed = useCryptoFeedMeta();
   const { isAdmin } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -342,205 +353,186 @@ export function SpotHoldings() {
     return { totalCost, totalMarketValue: totalCost + totalUnrealized, totalUnrealized };
   }, [spotHoldings, prices]);
 
+  const feedSecs = feed.lastUpdated != null ? Math.max(0, Math.round((Date.now() - feed.lastUpdated) / 1000)) : null;
+
+  const saleColumns: Column<CryptoSpotSale>[] = [
+    { key: 'tanggal', header: 'Date', width: '104px', cell: s => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(s.tanggal), 'dd MMM yy')}</span> },
+    { key: 'coin', header: 'Coin', width: '80px', cell: s => <span className="font-adm-data text-adm-ink-hi">{s.coin}</span> },
+    { key: 'jumlah_koin_sold', header: 'Qty sold', numeric: true, width: '100px', cell: s => fmtNum(s.jumlah_koin_sold, 6) },
+    { key: 'harga_jual', header: 'Sell price', numeric: true, width: '110px', cell: s => fmtCryptoPrice(s.harga_jual) },
+    { key: 'harga_beli_rata_at_sell', header: 'Avg cost', numeric: true, width: '110px', cell: s => <span className="text-adm-ink-mid">{fmtCryptoPrice(s.harga_beli_rata_at_sell)}</span> },
+    { key: 'proceeds', header: 'Proceeds', numeric: true, width: '110px', sortValue: s => s.jumlah_koin_sold * s.harga_jual, cell: s => fmtUsd(s.jumlah_koin_sold * s.harga_jual) },
+    { key: 'realized_pnl', header: 'Realized P&L', numeric: true, width: '120px', sortValue: s => s.realized_pnl, cell: s => <span className={s.realized_pnl < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(s.realized_pnl)}</span> },
+    { key: 'catatan', header: 'Notes', width: 'minmax(120px,1fr)', cell: s => <span className="font-adm-data text-adm-micro text-adm-ink-dim">{s.catatan || '—'}</span> },
+  ];
+  const salesTotal = spotSales.reduce((sum, s) => sum + Number(s.realized_pnl), 0);
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Spot Holdings</h2>
-          <p className="text-slate-400 text-sm mt-1">Track your long-term crypto spot positions.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <PriceStatusBadge status={status} lastUpdated={lastUpdated} onRefresh={refresh} />
-          {isAdmin && !showForm && (
-            <button onClick={() => setShowForm(true)} className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors">
-              <Plus className="w-4 h-4" /> Add Holding
+    <div className="space-y-4">
+      <PageHeader
+        desk="crypto"
+        title="Spot Holdings"
+        sub="long-term crypto positions"
+        right={
+          <div className="flex items-center gap-2">
+            <StatusBadge kind={feed.status} detail={feed.status === 'live' && feedSecs != null ? `${feedSecs}s ago` : undefined} title="Binance feed" />
+            <button onClick={refreshCrypto} title="Refresh prices" aria-label="Refresh prices" className="flex items-center justify-center rounded-adm-sm border border-adm-line p-1 text-adm-ink-mid hover:bg-adm-bg2">
+              <RefreshCw className={cn('h-3.5 w-3.5', feed.status === 'loading' && 'animate-spin')} />
             </button>
-          )}
-        </div>
-      </div>
+            {isAdmin && !showForm && (
+              <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-2 py-1 font-adm-data text-adm-micro uppercase text-adm-ink-hi hover:border-adm-desk-crypto">
+                <Plus className="h-3 w-3" /> Add holding
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {formError && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg flex items-start gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-          <p className="text-sm opacity-90">{formError}</p>
-        </div>
+        <p className="flex items-start gap-2 rounded-adm border border-adm-down/40 bg-adm-down-fill px-3 py-2 font-adm-data text-adm-xs text-adm-down">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {formError}
+        </p>
       )}
 
       {showForm && (
-        <form onSubmit={handleSubmit(onSubmit)} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-          <h3 className="font-medium text-slate-200">{editingId ? 'Edit Holding' : 'New Holding'}</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Coin</label>
-              <input {...register('coin')} placeholder="e.g. BTC" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
-              {errors.coin && <span className="text-xs text-red-500">{errors.coin.message}</span>}
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 rounded-adm border border-adm-line bg-adm-bg1 p-4">
+          <h3 className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">{editingId ? 'Edit holding' : 'New holding'}</h3>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <label className={labelCls}>Coin</label>
+              <input {...register('coin')} placeholder="e.g. BTC" className={inputCls} />
+              {errors.coin && <span className="font-adm-data text-adm-micro text-adm-down">{errors.coin.message}</span>}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Quantity</label>
-              <input type="number" step="any" {...register('jumlah_koin', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
-              {errors.jumlah_koin && <span className="text-xs text-red-500">{errors.jumlah_koin.message}</span>}
+            <div>
+              <label className={labelCls}>Quantity</label>
+              <input type="number" step="any" {...register('jumlah_koin', { valueAsNumber: true })} className={inputCls} />
+              {errors.jumlah_koin && <span className="font-adm-data text-adm-micro text-adm-down">{errors.jumlah_koin.message}</span>}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Avg Buy Price (USD)</label>
-              <input type="number" step="any" {...register('harga_beli_rata', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
-              {errors.harga_beli_rata && <span className="text-xs text-red-500">{errors.harga_beli_rata.message}</span>}
+            <div>
+              <label className={labelCls}>Avg buy price (USD)</label>
+              <input type="number" step="any" {...register('harga_beli_rata', { valueAsNumber: true })} className={inputCls} />
+              {errors.harga_beli_rata && <span className="font-adm-data text-adm-micro text-adm-down">{errors.harga_beli_rata.message}</span>}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Exchange / Wallet</label>
-              <input {...register('exchange_wallet')} list="exchanges" placeholder="e.g. Binance" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
+            <div>
+              <label className={labelCls}>Exchange / Wallet</label>
+              <input {...register('exchange_wallet')} list="exchanges" placeholder="e.g. Binance" className={inputCls} />
               <datalist id="exchanges">{existingExchanges.map(e => <option key={e} value={e} />)}</datalist>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Purchase Date</label>
-              <input type="date" {...register('tanggal_beli')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
+            <div>
+              <label className={labelCls}>Purchase date</label>
+              <input type="date" {...register('tanggal_beli')} className={inputCls} />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-400">Notes</label>
-              <input {...register('catatan')} placeholder="Optional" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
+            <div>
+              <label className={labelCls}>Notes</label>
+              <input {...register('catatan')} placeholder="Optional" className={inputCls} />
             </div>
           </div>
-          <div className="flex gap-2 justify-end pt-2">
-            <button type="button" onClick={handleCancel} className="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-slate-200 transition-colors">Cancel</button>
-            <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-5 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50">
-              {isSubmitting ? 'Saving...' : editingId ? 'Update' : 'Add'}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={handleCancel} className="rounded-adm-sm border border-adm-line px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-mid hover:bg-adm-bg2">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-hi hover:border-adm-desk-crypto disabled:opacity-40">
+              {isSubmitting ? 'Saving…' : editingId ? 'Update' : 'Add'}
             </button>
           </div>
         </form>
       )}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-            <tr>
-              <th className="px-4 py-3">Coin</th>
-              <th className="px-4 py-3">Qty</th>
-              <th className="px-4 py-3">Avg Price</th>
-              <th className="px-4 py-3">Cost Basis</th>
-              <th className="px-4 py-3">Exchange</th>
-              <th className="px-4 py-3 text-right">Current Price</th>
-              <th className="px-4 py-3 text-right">Market Value</th>
-              <th className="px-4 py-3 text-right">Floating P&L</th>
-              <th className="px-4 py-3 text-right">Actions</th>
+      {/* Holdings table — hand-styled (inline sell expand + totals footer, which
+          DataTable doesn't model). Re-renders on the Binance tick (live floating
+          P&L per row); no transitions on the tick-updated cells. */}
+      <div className="overflow-x-auto rounded-adm border border-adm-line bg-adm-bg1">
+        <table className="w-full" style={{ minWidth: 1080 }}>
+          <thead>
+            <tr className="border-b border-adm-line2">
+              <th className={thCls}>Coin</th>
+              <th className={thR}>Qty</th>
+              <th className={thR}>Avg price</th>
+              <th className={thR}>Cost basis</th>
+              <th className={thCls}>Exchange</th>
+              <th className={thR}>Current price</th>
+              <th className={thR}>Market value</th>
+              <th className={thR}>Floating P&L</th>
+              <th className={thR}>Actions</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="font-adm-data text-adm-sm">
             {spotHoldings.map(h => {
               const price = resolvePrice(prices, h.coin);
               const hasPrice = price != null;
               const floatingPnl = hasPrice ? spotUnrealized(h, price) : null;
               const costBasis = h.jumlah_koin * h.harga_beli_rata;
-
               return (
                 <Fragment key={h.id}>
-                <tr className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                  <td className="px-4 py-3 font-medium text-slate-200">{h.coin}</td>
-                  <td className="px-4 py-3 text-slate-300">{h.jumlah_koin}</td>
-                  <td className="px-4 py-3 text-slate-300">${h.harga_beli_rata.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-slate-300">${costBasis.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td className="px-4 py-3 text-slate-400 flex items-center gap-1"><Wallet className="w-3 h-3" />{h.exchange_wallet}</td>
-                  <td className="px-4 py-3 text-right text-slate-300">
-                    {hasPrice ? `$${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}` : <span className="text-slate-500">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right text-slate-300">
-                    {hasPrice ? `$${spotMarkToMarket(h, price).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : <span className="text-slate-500">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {floatingPnl !== null ? (
-                      <span className={cn('font-medium', floatingPnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                        {floatingPnl >= 0 ? '+' : ''}${floatingPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      </span>
-                    ) : (
-                      <span className="text-slate-500">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {isAdmin && (
-                      <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => beginSell(h)} disabled={sellingId !== null} className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded transition-colors disabled:opacity-50" title="Sell"><DollarSign className="w-3 h-3" />Sell</button>
-                        <button onClick={() => handleEdit(h)} className="text-slate-400 hover:text-slate-200" title="Edit"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => handleDelete(h)} className="text-slate-400 hover:text-rose-400" title="Delete"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-                {sellingId === h.id && (() => {
-                  const qty = parseFloat(sellQty);
-                  const price = parseFloat(sellPrice);
-                  const validQty = Number.isFinite(qty) && qty > 0 && qty <= h.jumlah_koin + 1e-12;
-                  const validPrice = Number.isFinite(price) && price > 0;
-                  const preview = validQty && validPrice ? (price - h.harga_beli_rata) * qty : null;
-                  const isFull = validQty && Math.abs(qty - h.jumlah_koin) < 1e-12;
-                  return (
-                    <tr className="bg-slate-950/40">
-                      <td colSpan={9} className="px-4 py-4">
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-xs text-slate-400">
-                            <DollarSign className="w-3 h-3 text-amber-400" />
-                            Sell {h.coin} — avg cost ${h.harga_beli_rata.toLocaleString()}, holding {h.jumlah_koin}
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                            <div className="space-y-1">
-                              <label className="text-xs font-medium text-slate-400">Quantity</label>
-                              <input type="number" step="any" value={sellQty} onChange={(e) => setSellQty(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-amber-500" autoFocus />
+                  <tr className="border-b border-adm-line hover:bg-adm-bg2">
+                    <td className="px-3 py-2 text-adm-ink-hi">{h.coin}</td>
+                    <td className="px-3 py-2 text-right text-adm-ink-mid">{fmtNum(h.jumlah_koin, 6)}</td>
+                    <td className="px-3 py-2 text-right text-adm-ink-mid">{fmtCryptoPrice(h.harga_beli_rata)}</td>
+                    <td className="px-3 py-2 text-right text-adm-ink-mid">{fmtUsd(costBasis)}</td>
+                    <td className="px-3 py-2 font-adm-ui text-adm-xs text-adm-ink-dim">{h.exchange_wallet}</td>
+                    <td className="px-3 py-2 text-right text-adm-ink-hi">{hasPrice ? fmtCryptoPrice(price) : <span className="text-adm-ink-dim">—</span>}</td>
+                    <td className="px-3 py-2 text-right text-adm-ink-hi">{hasPrice ? fmtUsd(spotMarkToMarket(h, price)) : <span className="text-adm-ink-dim">—</span>}</td>
+                    <td className="px-3 py-2 text-right">{floatingPnl !== null ? <span className={floatingPnl < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(floatingPnl)}</span> : <span className="text-adm-ink-dim">—</span>}</td>
+                    <td className="px-3 py-2 text-right">
+                      {isAdmin && (
+                        <span className="flex items-center justify-end gap-1">
+                          <button onClick={() => beginSell(h)} disabled={sellingId !== null} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-desk-crypto hover:bg-adm-bg2 disabled:opacity-40" title="Sell">Sell</button>
+                          <button onClick={() => handleEdit(h)} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-ink-mid hover:bg-adm-bg2" title="Edit">Edit</button>
+                          <button onClick={() => handleDelete(h)} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-down hover:bg-adm-bg2" title="Delete">Del</button>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                  {sellingId === h.id && (() => {
+                    const qty = parseFloat(sellQty);
+                    const sprice = parseFloat(sellPrice);
+                    const validQty = Number.isFinite(qty) && qty > 0 && qty <= h.jumlah_koin + 1e-12;
+                    const validPrice = Number.isFinite(sprice) && sprice > 0;
+                    const preview = validQty && validPrice ? (sprice - h.harga_beli_rata) * qty : null;
+                    const isFull = validQty && Math.abs(qty - h.jumlah_koin) < 1e-12;
+                    return (
+                      <tr className="bg-adm-bg0">
+                        <td colSpan={9} className="px-3 py-4">
+                          <div className="space-y-3">
+                            <p className="font-adm-data text-adm-micro uppercase text-adm-desk-crypto">
+                              Sell {h.coin} — avg cost {fmtUsd(h.harga_beli_rata)}, holding {fmtNum(h.jumlah_koin, 6)}
+                            </p>
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
+                              <div><label className={labelCls}>Quantity</label><input type="number" step="any" value={sellQty} onChange={e => setSellQty(e.target.value)} className={inputCls} autoFocus /></div>
+                              <div><label className={labelCls}>Sell price (USD)</label><input type="number" step="any" value={sellPrice} onChange={e => setSellPrice(e.target.value)} className={inputCls} placeholder="e.g. 65000" /></div>
+                              <div><label className={labelCls}>Sell date</label><input type="date" value={sellDate} onChange={e => setSellDate(e.target.value)} className={inputCls} /></div>
+                              <div className="md:col-span-2"><label className={labelCls}>Notes</label><input value={sellNotes} onChange={e => setSellNotes(e.target.value)} placeholder="Optional" className={inputCls} /></div>
                             </div>
-                            <div className="space-y-1">
-                              <label className="text-xs font-medium text-slate-400">Sell Price (USD)</label>
-                              <input type="number" step="any" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-amber-500" placeholder="e.g. 65000" />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-xs font-medium text-slate-400">Sell Date</label>
-                              <input type="date" value={sellDate} onChange={(e) => setSellDate(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-amber-500" />
-                            </div>
-                            <div className="space-y-1 md:col-span-2">
-                              <label className="text-xs font-medium text-slate-400">Notes</label>
-                              <input value={sellNotes} onChange={(e) => setSellNotes(e.target.value)} placeholder="Optional" className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-amber-500" />
+                            <div className="flex items-center justify-between">
+                              <p className="font-adm-data text-adm-xs text-adm-ink-dim">
+                                {preview !== null ? (
+                                  <>Realized P&L: <span className={preview < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(preview)}</span>{isFull && <span className="ml-2 text-adm-ink-dim">(full sell — holding removed)</span>}</>
+                                ) : 'Enter quantity and price to preview realized P&L.'}
+                              </p>
+                              <span className="flex gap-2">
+                                <button onClick={cancelSell} disabled={isSelling} className="flex items-center gap-1 rounded-adm-sm border border-adm-line px-3 py-1.5 font-adm-data text-adm-micro uppercase text-adm-ink-mid hover:bg-adm-bg2"><X className="h-3 w-3" />Cancel</button>
+                                <button onClick={() => handleSell(h)} disabled={isSelling || !validQty || !validPrice} className="flex items-center gap-1 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-3 py-1.5 font-adm-data text-adm-micro uppercase text-adm-ink-hi hover:border-adm-desk-crypto disabled:opacity-40"><Check className="h-3 w-3" />{isSelling ? 'Selling…' : 'Confirm sell'}</button>
+                              </span>
                             </div>
                           </div>
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="text-slate-400">
-                              {preview !== null ? (
-                                <>
-                                  Realized P&L:{' '}
-                                  <span className={cn('font-medium', preview >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                                    {preview >= 0 ? '+' : ''}${preview.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                  </span>
-                                  {isFull && <span className="ml-2 text-slate-500">(full sell — holding will be removed)</span>}
-                                </>
-                              ) : (
-                                <span className="text-slate-500">Enter quantity and price to preview realized P&L.</span>
-                              )}
-                            </div>
-                            <div className="flex gap-2">
-                              <button onClick={cancelSell} disabled={isSelling} className="flex items-center gap-1 px-3 py-1.5 rounded text-xs text-slate-300 hover:text-slate-100 bg-slate-800 hover:bg-slate-700 transition-colors"><X className="w-3 h-3" />Cancel</button>
-                              <button onClick={() => handleSell(h)} disabled={isSelling || !validQty || !validPrice} className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium text-white bg-amber-600 hover:bg-amber-500 disabled:opacity-50 transition-colors"><Check className="w-3 h-3" />{isSelling ? 'Selling…' : 'Confirm Sell'}</button>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })()}
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </Fragment>
               );
             })}
             {spotHoldings.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-500">No spot holdings yet.</td></tr>
+              <tr><td colSpan={9} className="px-3 py-8 text-center font-adm-data text-adm-xs text-adm-ink-dim">No spot holdings yet.</td></tr>
             )}
           </tbody>
           {spotHoldings.length > 0 && (
-            <tfoot className="border-t border-slate-700 bg-slate-950/30">
+            <tfoot className="border-t border-adm-line2 bg-adm-bg0 font-adm-data text-adm-sm">
               <tr>
-                <td colSpan={3} className="px-4 py-3 font-medium text-slate-300">Totals</td>
-                <td className="px-4 py-3 font-medium text-slate-200">${totals.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                <td></td>
-                <td></td>
-                <td className="px-4 py-3 text-right font-medium text-slate-200">${totals.totalMarketValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                <td className="px-4 py-3 text-right font-medium">
-                  <span className={cn(totals.totalUnrealized >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                    {totals.totalUnrealized >= 0 ? '+' : ''}${totals.totalUnrealized.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </span>
-                </td>
-                <td></td>
+                <td colSpan={3} className="px-3 py-2 font-adm-data text-adm-micro uppercase text-adm-ink-dim">Totals</td>
+                <td className="px-3 py-2 text-right text-adm-ink-hi">{fmtUsd(totals.totalCost)}</td>
+                <td /><td />
+                <td className="px-3 py-2 text-right text-adm-ink-hi">{fmtUsd(totals.totalMarketValue)}</td>
+                <td className="px-3 py-2 text-right"><span className={totals.totalUnrealized < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(totals.totalUnrealized)}</span></td>
+                <td />
               </tr>
             </tfoot>
           )}
@@ -550,60 +542,13 @@ export function SpotHoldings() {
       {/* Sales History — append-only realized log */}
       {spotSales.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-slate-300 tracking-wide uppercase">Sales History</h3>
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-                <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Coin</th>
-                  <th className="px-4 py-3 text-right">Qty Sold</th>
-                  <th className="px-4 py-3 text-right">Sell Price</th>
-                  <th className="px-4 py-3 text-right">Avg Cost @ Sell</th>
-                  <th className="px-4 py-3 text-right">Proceeds</th>
-                  <th className="px-4 py-3 text-right">Realized P&L</th>
-                  <th className="px-4 py-3">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {spotSales.map(s => {
-                  const proceeds = s.jumlah_koin_sold * s.harga_jual;
-                  return (
-                    <tr key={s.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                      <td className="px-4 py-3 text-slate-300">{format(parseISO(s.tanggal), 'dd MMM yyyy')}</td>
-                      <td className="px-4 py-3 font-medium text-slate-200">{s.coin}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">{s.jumlah_koin_sold}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">${s.harga_jual.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right text-slate-400">${s.harga_beli_rata_at_sell.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right text-slate-300">${proceeds.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-3 text-right">
-                        <span className={cn('font-medium', s.realized_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                          {s.realized_pnl >= 0 ? '+' : ''}${s.realized_pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs">{s.catatan || ''}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot className="border-t border-slate-700 bg-slate-950/30">
-                <tr>
-                  <td colSpan={6} className="px-4 py-3 font-medium text-slate-300">Total Realized P&L</td>
-                  <td className="px-4 py-3 text-right font-medium">
-                    {(() => {
-                      const total = spotSales.reduce((sum, s) => sum + Number(s.realized_pnl), 0);
-                      return (
-                        <span className={cn(total >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                          {total >= 0 ? '+' : ''}${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </span>
-                      );
-                    })()}
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
+          <div className="flex items-center justify-between">
+            <p className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">Sales history</p>
+            <p className="font-adm-data text-adm-xs text-adm-ink-mid">
+              Total realized P&L <span className={salesTotal < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(salesTotal)}</span>
+            </p>
           </div>
+          <DataTable columns={saleColumns} rows={spotSales} rowKey={s => s.id} minWidth={900} empty="No sales yet." />
         </div>
       )}
     </div>

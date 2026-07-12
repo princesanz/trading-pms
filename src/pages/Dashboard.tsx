@@ -1,12 +1,19 @@
 import { useMemo } from 'react';
 import { usePortfolioData } from '../hooks/useSupabase';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, TrendingDown, Activity, Target, Wallet, Landmark, Banknote } from 'lucide-react';
-import { format, parseISO, getDay } from 'date-fns';
+import { RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useForexPrices } from '../contexts/ForexPriceProvider';
-import { forexDeskSummary } from '../lib/deskAggregates';
-import { PriceStatusBadge } from '../components/PriceStatusBadge';
+import { calculateDeskBalances, calculateEffectiveTradingBalance, calculateNetCapital } from '../lib/balanceCalc';
+import { forexLiveEquity } from '../lib/forexLivePnl';
+import { winLossStats, maxDrawdownPct, groupedWinRates, pnlByWeekday } from '../lib/tradeStats';
+import { useForexPolling, useForexPriceMap, useForexFeedMeta, refreshForex } from '../state/prices';
+import { PageHeader } from '../components/adm/PageHeader';
+import { StatusBadge } from '../components/adm/StatusBadge';
+import { MetricStrip } from '../components/adm/MetricStrip';
+import { DataTable, type Column } from '../components/adm/DataTable';
+import { ChartPanel } from '../components/adm/ChartPanel';
+import { color } from '../design/tokens';
+import { fmtUsd, fmtSignedUsd, fmtPct } from '../design/format';
+import type { Trade } from '../types';
 
 // Bucket timestamps by the user's LOCAL (WIB) calendar day. Timestamps are stored in UTC,
 // so a trade closed 01:00 WIB must count as that WIB day, not the prior UTC day. We derive
@@ -16,48 +23,46 @@ function wibDayKey(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-CA', { timeZone: WIB_TZ });
 }
 
-export function Dashboard() {
-  const { trades, cashFlows, settings, loading } = usePortfolioData();
-  const { prices, status, lastUpdated, refresh } = useForexPrices();
+/**
+ * Live cells — the ONLY components on this page subscribed to the price store.
+ * A 5s tick re-renders these two spans; the charts, tables, and realized
+ * metrics never re-render on a tick. Math is the same lib composition
+ * forexDeskSummary uses (forexLiveEquity over the realized balances); values
+ * swap with NO animation per the motion rule.
+ */
+function LiveEquityCell({ funding, trading, openTrades }: { funding: number; trading: number; openTrades: Trade[] }) {
+  const prices = useForexPriceMap();
+  return <span className="text-adm-ink-hi">{fmtUsd(forexLiveEquity(funding, trading, openTrades, prices))}</span>;
+}
 
-  // Equity / P&L / Modal Awal via the shared desk-summary helper — the SAME one the
-  // Overview uses, so the two can never drift. Aliased to keep the existing card
-  // references (balances.funding, totalEquity, totalPnl, modalAwal) working unchanged.
-  const summary = useMemo(() => forexDeskSummary(cashFlows, trades, prices), [cashFlows, trades, prices]);
-  const balances = summary;
-  const modalAwal = summary.modalAwal;
-  const totalEquity = summary.equity;
-  const totalPnl = summary.pnl;
+function LivePnlCell({ funding, trading, modalAwal, openTrades }: { funding: number; trading: number; modalAwal: number; openTrades: Trade[] }) {
+  const prices = useForexPriceMap();
+  const pnl = forexLiveEquity(funding, trading, openTrades, prices) - modalAwal;
+  return <span className={pnl < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(pnl)}</span>;
+}
+
+type PsychRow = { name: string; total: number; winRate: number; wins: number; losses: number };
+
+export function Dashboard() {
+  useForexPolling();
+  const { trades, cashFlows, settings, loading } = usePortfolioData();
+  const feed = useForexFeedMeta();
+
+  // Same balance composition as forexDeskSummary (lib/deskAggregates), decomposed
+  // so the price-dependent term lives only in the live cells above.
+  const funding = useMemo(() => calculateDeskBalances(cashFlows, 'Forex').funding, [cashFlows]);
+  const trading = useMemo(() => calculateEffectiveTradingBalance(cashFlows, 'Forex', trades), [cashFlows, trades]);
+  const modalAwal = useMemo(() => calculateNetCapital(cashFlows, 'Forex'), [cashFlows]);
+  const openTrades = useMemo(() => trades.filter(t => t.status === 'Open'), [trades]);
 
   // Filter to only closed trades for all dashboard analytics
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'Closed'), [trades]);
 
+  // Formula extraction (redesign Phase 0): the math lives in lib/tradeStats.ts.
   const stats = useMemo(() => {
-    const wonTrades = closedTrades.filter(t => (t.net_pnl || 0) > 0);
-    const lostTrades = closedTrades.filter(t => (t.net_pnl || 0) < 0);
-    const winRate = closedTrades.length > 0 ? (wonTrades.length / closedTrades.length) * 100 : 0;
-
-    // Max Drawdown: largest peak-to-trough decline in saldo_akun among closed trades
-    let peak = settings?.modal_awal || 0;
-    let maxDrawdown = 0;
-    
-    closedTrades.forEach(t => {
-      const balance = t.saldo_akun || 0;
-      if (balance > peak) peak = balance;
-      if (peak > 0) {
-        const drawdown = ((peak - balance) / peak) * 100;
-        if (drawdown > maxDrawdown) maxDrawdown = drawdown;
-      }
-    });
-
-    return {
-      winRate,
-      maxDrawdown,
-      totalClosed: closedTrades.length,
-      totalOpen: trades.length - closedTrades.length,
-      wonCount: wonTrades.length,
-      lostCount: lostTrades.length,
-    };
+    const { winRate, wonCount, lostCount, totalClosed } = winLossStats(closedTrades);
+    const maxDrawdown = maxDrawdownPct(closedTrades, settings?.modal_awal || 0);
+    return { winRate, maxDrawdown, totalClosed, totalOpen: trades.length - closedTrades.length, wonCount, lostCount };
   }, [closedTrades, trades, settings]);
 
   // Equity curve: ONE point per WIB trading day (daily closing balance), not one per trade.
@@ -65,259 +70,138 @@ export function Dashboard() {
   // saldo_akun), so within each close-day the LAST write wins = end-of-day cumulative realized
   // balance. Balance values are taken verbatim from saldo_akun — no recomputation here.
   const chartData = useMemo(() => {
-    const byDay = new Map<string, { date: string; balance: number; pnl: number | null; instrument: string; psychology: string }>();
+    const byDay = new Map<string, { date: string; balance: number }>();
     for (const t of closedTrades) {
       if (t.saldo_akun == null) continue;
       // Bucket by close date; fall back to the open date for legacy rows without tanggal_tutup.
       const day = wibDayKey(t.tanggal_tutup || t.tanggal);
-      byDay.set(day, {
-        date: day,
-        balance: t.saldo_akun,
-        pnl: t.net_pnl ?? null,
-        instrument: t.instrumen,
-        psychology: t.psychology_tag?.name || 'Unknown',
-      });
+      byDay.set(day, { date: day, balance: t.saldo_akun });
     }
     return Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [closedTrades]);
 
-  const pnlByDay = useMemo(() => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const result = days.map(day => ({ day, profit: 0, loss: 0 }));
-    
-    closedTrades.forEach(t => {
-      if (t.net_pnl) {
-        const dayIdx = getDay(parseISO(t.tanggal));
-        if (t.net_pnl > 0) result[dayIdx].profit += t.net_pnl;
-        else result[dayIdx].loss += Math.abs(t.net_pnl);
-      }
-    });
-    // Return only Mon-Fri
-    return result.slice(1, 6);
-  }, [closedTrades]);
+  const curve = useMemo(() => ({
+    x: chartData.map(d => Math.floor(Date.parse(d.date) / 1000)),
+    y: chartData.map(d => d.balance),
+  }), [chartData]);
 
-  const psychologyInsights = useMemo(() => {
-    const psychMap = new Map<string, { total: number; wins: number }>();
-    
-    closedTrades.forEach(t => {
-      if (t.net_pnl === null || t.net_pnl === undefined) return;
-      const psychName = t.psychology_tag?.name || 'Unknown';
-      const isWin = t.net_pnl > 0;
-      
-      const current = psychMap.get(psychName) || { total: 0, wins: 0 };
-      psychMap.set(psychName, {
-        total: current.total + 1,
-        wins: current.wins + (isWin ? 1 : 0)
-      });
-    });
+  const pnlByDay = useMemo(() => pnlByWeekday(closedTrades), [closedTrades]);
 
-    return Array.from(psychMap.entries()).map(([name, data]) => ({
-      name,
-      total: data.total,
-      winRate: (data.wins / data.total) * 100,
-      wins: data.wins,
-      losses: data.total - data.wins
-    })).sort((a, b) => b.total - a.total);
-  }, [closedTrades]);
+  const psychologyInsights = useMemo(
+    () => groupedWinRates(closedTrades, t => t.psychology_tag?.name || 'Unknown'),
+    [closedTrades]
+  );
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-slate-400">Loading portfolio data...</div>;
+  const psychColumns: Column<PsychRow>[] = [
+    { key: 'name', header: 'Psychology state', width: 'minmax(0,1.6fr)' },
+    { key: 'total', header: 'Trades', numeric: true, width: '90px', sortValue: r => r.total },
+    { key: 'wins', header: 'W/L', numeric: true, width: '90px', cell: r => <span className="text-adm-ink-mid">{r.wins}/{r.losses}</span> },
+    {
+      key: 'winRate', header: 'Win rate', numeric: true, width: '110px', sortValue: r => r.winRate,
+      cell: r => <span className={r.winRate >= 50 ? 'text-adm-up' : 'text-adm-down'}>{fmtPct(r.winRate)}</span>,
+    },
+  ];
+
+  if (loading) {
+    return <div className="flex h-64 items-center justify-center font-adm-data text-adm-sm text-adm-ink-dim">Loading portfolio data…</div>;
+  }
+
+  const feedMins = feed.lastUpdated != null ? Math.max(0, Math.round((Date.now() - feed.lastUpdated) / 1000)) : null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Overview</h2>
-        <div className="flex items-center gap-3">
-          {stats.totalOpen > 0 && (
-            <span className="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-1 rounded">
-              {stats.totalOpen} open trade{stats.totalOpen > 1 ? 's' : ''}
-            </span>
-          )}
-          <PriceStatusBadge status={status} lastUpdated={lastUpdated} onRefresh={refresh} />
-        </div>
-      </div>
-      
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Modal Awal"
-          value={`$${modalAwal.toLocaleString(undefined, {minimumFractionDigits: 2})}`}
-          subtitle="Net capital in/out"
-          icon={<Banknote className="text-emerald-500" />}
-        />
-        <StatCard
-          title="Funding Account"
-          value={`$${balances.funding.toLocaleString(undefined, {minimumFractionDigits: 2})}`}
-          subtitle="External deposits"
-          icon={<Landmark className="text-emerald-500" />}
-        />
-        <StatCard
-          title="Trading Account"
-          value={`$${balances.trading.toLocaleString(undefined, {minimumFractionDigits: 2})}`}
-          subtitle="Available to trade"
-          icon={<Wallet className="text-emerald-500" />}
-        />
-        <StatCard
-          title="Total Equity"
-          value={`$${totalEquity.toLocaleString(undefined, {minimumFractionDigits: 2})}`}
-          subtitle="Funding + Trading + open uPnL (live)"
-          icon={<Activity className="text-emerald-500" />}
-        />
-        <StatCard
-          title="Total P&L"
-          value={`${totalPnl >= 0 ? '+' : '-'}$${Math.abs(totalPnl).toLocaleString(undefined, {minimumFractionDigits: 2})}`}
-          subtitle="Equity − Modal Awal"
-          valueClass={totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}
-          icon={totalPnl >= 0 ? <TrendingUp className="text-emerald-500" /> : <TrendingDown className="text-rose-500" />}
-        />
-        <StatCard
-          title="Win Rate"
-          value={`${stats.winRate.toFixed(1)}%`}
-          subtitle={`${stats.wonCount}W / ${stats.lostCount}L`}
-          icon={<Target className="text-blue-500" />}
-        />
-        <StatCard 
-          title="Max Drawdown" 
-          value={`${stats.maxDrawdown.toFixed(2)}%`}
-          icon={<TrendingDown className="text-rose-500" />}
-        />
-        <StatCard 
-          title="Closed Trades" 
-          value={stats.totalClosed.toString()}
-          icon={<TrendingUp className="text-purple-500" />}
-        />
-      </div>
-
-      {/* Main Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Equity Curve */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <h3 className="text-lg font-medium mb-4">Equity Curve</h3>
-          <div className="h-72">
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                  <XAxis dataKey="date" stroke="#64748b" tickFormatter={(val) => format(parseISO(val), 'MMM dd')} />
-                  <YAxis stroke="#64748b" domain={['auto', 'auto']} tickFormatter={(val) => `$${val}`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc' }}
-                    itemStyle={{ color: '#10b981' }}
-                    labelFormatter={(val) => format(parseISO(val as string), 'MMM dd, yyyy')}
-                  />
-                  <Line type="monotone" dataKey="balance" stroke="#10b981" strokeWidth={2} dot={false} activeDot={{ r: 6 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-slate-500 text-sm">
-                Close some trades to see the equity curve.
-              </div>
-            )}
+    <div className="space-y-4">
+      <PageHeader
+        desk="forex"
+        title="Forex & Commodities"
+        sub="XAUUSD · majors · indices"
+        commandHint
+        right={
+          <div className="flex items-center gap-2">
+            {stats.totalOpen > 0 && <StatusBadge kind="open" label={`${stats.totalOpen} OPEN`} />}
+            <StatusBadge kind={feed.status} detail={feed.status === 'live' && feedMins != null ? `${feedMins}s ago` : undefined} title="gold-api feed" />
+            <button
+              onClick={refreshForex}
+              title="Refresh prices"
+              aria-label="Refresh prices"
+              className="flex items-center justify-center rounded-adm-sm border border-adm-line p-1 text-adm-ink-mid hover:bg-adm-bg2"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', feed.status === 'loading' && 'animate-spin')} />
+            </button>
           </div>
-        </div>
+        }
+      />
 
-        {/* Win/Loss Donut */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <h3 className="text-lg font-medium mb-4">Win vs Loss</h3>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={[
-                    { name: 'Wins', value: stats.wonCount },
-                    { name: 'Losses', value: stats.lostCount }
-                  ]}
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  <Cell fill="#10b981" />
-                  <Cell fill="#f43f5e" />
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex justify-center gap-4 mt-2 text-sm">
-              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-emerald-500"></div>Wins ({stats.wonCount})</div>
-              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-rose-500"></div>Losses ({stats.lostCount})</div>
-            </div>
-          </div>
-        </div>
+      {/* Capital strip — equity & P&L are live (tick-updated, never animated). */}
+      <MetricStrip
+        items={[
+          { label: 'Modal Awal', value: modalAwal, format: 'usd', sub: 'net capital in/out' },
+          { label: 'Funding', value: funding, format: 'usd', sub: 'external deposits' },
+          { label: 'Trading', value: trading, format: 'usd', sub: 'cash + realized P&L' },
+          { label: 'Total Equity', value: <LiveEquityCell funding={funding} trading={trading} openTrades={openTrades} />, format: 'raw', emphasis: true, sub: 'incl. live uPnL' },
+          { label: 'Total P&L', value: <LivePnlCell funding={funding} trading={trading} modalAwal={modalAwal} openTrades={openTrades} />, format: 'raw', sub: 'equity − modal awal' },
+        ]}
+      />
+
+      {/* Performance strip — realized only, never re-renders on a tick. */}
+      <MetricStrip
+        items={[
+          { label: 'Win rate', value: stats.winRate, format: 'pct', tone: 'neutral', sub: `${stats.wonCount}W / ${stats.lostCount}L` },
+          { label: 'Max drawdown', value: `${stats.maxDrawdown.toFixed(2)}%`, tone: 'neutral', sub: 'peak-to-trough, saldo akun' },
+          { label: 'Closed trades', value: String(stats.totalClosed), tone: 'neutral' },
+          { label: 'Open positions', value: String(stats.totalOpen), tone: 'neutral' },
+        ]}
+      />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <ChartPanel
+          type="area"
+          title="Equity curve"
+          note="daily closing balance (realized)"
+          x={curve.x}
+          series={[{ label: 'BAL', data: curve.y, tone: 'neutral' }]}
+          valueFormat={n => fmtUsd(n)}
+          height={280}
+          className="lg:col-span-2"
+        />
+        <ChartPanel
+          type="alloc"
+          title="Win vs loss"
+          note={`${stats.totalClosed} closed`}
+          segments={[
+            { label: 'Wins', value: stats.wonCount, color: color.up },
+            { label: 'Losses', value: stats.lostCount, color: color.down },
+          ]}
+          valueFormat={n => String(Math.round(n))}
+        />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* PnL By Day of Week */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <h3 className="text-lg font-medium mb-4">PnL by Day of Week</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={pnlByDay}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                <XAxis dataKey="day" stroke="#64748b" tick={{ fontSize: 12 }} />
-                <YAxis stroke="#64748b" tick={{ fontSize: 12 }} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b' }} cursor={{fill: '#1e293b'}} />
-                <Bar dataKey="profit" fill="#10b981" stackId="a" />
-                <Bar dataKey="loss" fill="#f43f5e" stackId="a" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Psychology Insights Table */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 overflow-hidden flex flex-col">
-          <h3 className="text-lg font-medium mb-4 text-emerald-400 flex items-center gap-2">
-            <Target className="w-5 h-5" />
-            Psychology Edge Analysis
-          </h3>
-          <div className="flex-1 overflow-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-                <tr>
-                  <th className="px-4 py-3 rounded-tl-lg">Psychology State</th>
-                  <th className="px-4 py-3 text-right">Trades</th>
-                  <th className="px-4 py-3 text-right rounded-tr-lg">Win Rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {psychologyInsights.map((item) => (
-                  <tr key={item.name} className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                    <td className="px-4 py-3 font-medium text-slate-200">{item.name}</td>
-                    <td className="px-4 py-3 text-right text-slate-400">{item.total}</td>
-                    <td className="px-4 py-3 text-right">
-                      <span className={cn(
-                        "px-2 py-1 rounded-md font-bold",
-                        item.winRate >= 50 ? "text-emerald-400 bg-emerald-400/10" : "text-rose-400 bg-rose-400/10"
-                      )}>
-                        {item.winRate.toFixed(1)}%
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {psychologyInsights.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-slate-500">No psychology data available yet. Close some trades to see insights.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <ChartPanel
+          type="bars"
+          title="P&L by weekday"
+          note="closed trades, absolute loss"
+          x={[0, 1, 2, 3, 4]}
+          xKind="category"
+          xLabels={pnlByDay.map(d => d.day.slice(0, 3).toUpperCase())}
+          series={[
+            { label: 'PROFIT', data: pnlByDay.map(d => d.profit), tone: 'up' },
+            { label: 'LOSS', data: pnlByDay.map(d => d.loss), tone: 'down' },
+          ]}
+          valueFormat={n => fmtUsd(n)}
+          height={240}
+        />
+        <div>
+          <p className="mb-2 font-adm-data text-adm-micro uppercase text-adm-ink-dim">Psychology edge analysis</p>
+          <DataTable
+            columns={psychColumns}
+            rows={psychologyInsights}
+            rowKey={r => r.name}
+            defaultSort={{ key: 'total', dir: 'desc' }}
+            empty="No psychology data yet — close some trades to see insights."
+          />
         </div>
       </div>
     </div>
   );
 }
 
-function StatCard({ title, value, subtitle, icon, valueClass }: { title: string; value: string; subtitle?: string; icon: React.ReactNode; valueClass?: string }) {
-  return (
-    <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl flex items-center gap-4">
-      <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-        {icon}
-      </div>
-      <div>
-        <p className="text-sm font-medium text-slate-400">{title}</p>
-        <p className={`text-2xl font-bold tracking-tight ${valueClass ?? 'text-slate-100'}`}>{value}</p>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
-      </div>
-    </div>
-  );
-}

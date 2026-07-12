@@ -4,9 +4,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { AlertTriangle, Send } from 'lucide-react';
 import { useCryptoData } from '../../hooks/useCryptoData';
-import { supabase } from '../../lib/supabase';
+import { queryClient } from '../../lib/queryClient';
 import { useNavigate } from 'react-router-dom';
 import { calculateEffectiveTradingBalance } from '../../lib/balanceCalc';
+import { insertCryptoFuturesTrade } from '../../lib/cryptoFuturesInsert';
+import { PageHeader } from '../../components/adm/PageHeader';
 
 const futuresSchema = z.object({
   tanggal: z.string().min(1, 'Date is required'),
@@ -84,133 +86,112 @@ export function FuturesTradeEntry() {
   const onSubmit = async (data: FuturesFormValues) => {
     if (balanceError) return;
     setIsSubmitting(true);
-    const insertResponse = await supabase.from('crypto_futures_trades').insert({
-      tanggal: data.tanggal,
-      coin: data.coin,
-      posisi: data.posisi,
-      notional_usd: data.notional_usd,
-      leverage: data.leverage,
-      margin_mode: data.margin_mode,
-      harga_entry: data.harga_entry,
-      sl: data.sl || null,
-      tp: data.tp || null,
-      liquidation_price: data.liquidation_price || null,
-      funding_rate_paid: data.funding_rate_paid || 0,
-      setup: data.setup || null,
-      psikologi: data.psikologi || null,
-      catatan: data.catatan,
-      status: 'Open',
-    }).select();
+    // Shared insert path (lib/cryptoFuturesInsert) — same payload as before; the
+    // CommandBar uses it too.
+    const insertResponse = await insertCryptoFuturesTrade(data);
 
     setIsSubmitting(false);
     if (insertResponse.error) { alert(`Error: ${insertResponse.error.message}`); }
     else {
-      // The journal page re-fetches on mount, so navigating shows the new position.
+      // Journal data is cached forever (staleTime: Infinity) — invalidating the
+      // table key is what makes the journal refetch on the next mount.
+      void queryClient.invalidateQueries({ queryKey: ['crypto_futures_trades'] });
       navigate('/crypto/futures/journal');
     }
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Log Futures Position</h2>
-        <p className="text-slate-400 text-sm mt-1">Enter your crypto futures trade. P&L will be updated when the position is closed.</p>
-      </div>
+    <div className="mx-auto max-w-2xl space-y-4">
+      <PageHeader desk="crypto" title="Log Futures Position" sub="P&L is recorded when the position is closed" />
 
       {balanceError && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg flex items-start gap-3 text-rose-400">
-          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-          <div>
-            <h4 className="font-medium">Insufficient Balance</h4>
-            <p className="text-sm opacity-90">{balanceError}</p>
-          </div>
-        </div>
+        <p className="flex items-start gap-2 rounded-adm border border-adm-down/40 bg-adm-down-fill px-3 py-2 font-adm-data text-adm-xs text-adm-down">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span><span className="uppercase">Insufficient balance</span> — {balanceError}</span>
+        </p>
       )}
 
       {riskWarning && (
-        <div className="p-4 bg-orange-500/10 border border-orange-500/50 rounded-lg flex items-start gap-3 text-orange-400">
-          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-          <div>
-            <h4 className="font-medium">Risk Alert</h4>
-            <p className="text-sm opacity-90">{riskWarning}</p>
-          </div>
-        </div>
+        <p className="flex items-start gap-2 rounded-adm border border-adm-desk-forex/40 bg-adm-bg1 px-3 py-2 font-adm-data text-adm-xs text-adm-desk-forex">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span><span className="uppercase">Risk alert</span> — {riskWarning}</span>
+        </p>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5 rounded-adm border border-adm-line bg-adm-bg1 p-5">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Date</label>
-            <input type="date" {...register('tanggal')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
-            {errors.tanggal && <span className="text-xs text-red-500">{errors.tanggal.message}</span>}
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Date</label>
+            <input type="date" {...register('tanggal')} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" />
+            {errors.tanggal && <span className="font-adm-data text-adm-micro text-adm-down">{errors.tanggal.message}</span>}
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Coin Pair</label>
-            <input type="text" placeholder="e.g. BTCUSDT" {...register('coin')} onChange={(e) => setValue('coin', e.target.value.toUpperCase())} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none uppercase" />
-            {errors.coin && <span className="text-xs text-red-500">{errors.coin.message}</span>}
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Coin Pair</label>
+            <input type="text" placeholder="e.g. BTCUSDT" {...register('coin')} onChange={(e) => setValue('coin', e.target.value.toUpperCase())} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm uppercase text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" />
+            {errors.coin && <span className="font-adm-data text-adm-micro text-adm-down">{errors.coin.message}</span>}
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Position</label>
-            <select {...register('posisi')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none">
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Position</label>
+            <select {...register('posisi')} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none">
               <option value="Long">Long</option>
               <option value="Short">Short</option>
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Notional Value (USD)</label>
-            <input type="number" step="0.01" {...register('notional_usd', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
-            {watchNotional && watchLeverage ? <span className="text-xs text-slate-500">Margin ≈ ${(watchNotional / watchLeverage).toFixed(2)} at {watchLeverage}x</span> : null}
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Notional Value (USD)</label>
+            <input type="number" step="0.01" {...register('notional_usd', { valueAsNumber: true })} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" />
+            {watchNotional && watchLeverage ? <span className="font-adm-data text-adm-micro text-adm-ink-dim">Margin ≈ ${(watchNotional / watchLeverage).toFixed(2)} at {watchLeverage}x</span> : null}
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Leverage</label>
-            <input type="number" step="1" min="1" {...register('leverage', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Leverage</label>
+            <input type="number" step="1" min="1" {...register('leverage', { valueAsNumber: true })} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Margin Mode</label>
-            <select {...register('margin_mode')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none">
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Margin Mode</label>
+            <select {...register('margin_mode')} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none">
               <option value="Isolated">Isolated</option>
               <option value="Cross">Cross</option>
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Entry Price</label>
-            <input type="number" step="any" {...register('harga_entry', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Entry Price</label>
+            <input type="number" step="any" {...register('harga_entry', { valueAsNumber: true })} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Stop Loss</label>
-            <input type="number" step="any" {...register('sl', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Stop Loss</label>
+            <input type="number" step="any" {...register('sl', { valueAsNumber: true })} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Take Profit</label>
-            <input type="number" step="any" {...register('tp', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Take Profit</label>
+            <input type="number" step="any" {...register('tp', { valueAsNumber: true })} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Liquidation Price</label>
-            <input type="number" step="any" {...register('liquidation_price', { valueAsNumber: true })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none" />
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Liquidation Price</label>
+            <input type="number" step="any" {...register('liquidation_price', { valueAsNumber: true })} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Setup</label>
-            <select {...register('setup')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none">
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Setup</label>
+            <select {...register('setup')} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none">
               <option value="">-- Select Setup --</option>
               {setupTags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Psychology State</label>
-            <select {...register('psikologi')} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none">
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Psychology State</label>
+            <select {...register('psikologi')} className="w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none">
               <option value="">-- Select State --</option>
               {psychologyTags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
             </select>
           </div>
           <div className="col-span-1 md:col-span-2 space-y-2">
-            <label className="text-sm font-medium text-slate-300">Notes</label>
-            <textarea {...register('catatan')} rows={3} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none resize-none" placeholder="Entry reasoning, context, etc." />
+            <label className="mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim">Notes</label>
+            <textarea {...register('catatan')} rows={3} className="w-full resize-none rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none" placeholder="Entry reasoning, context, etc." />
           </div>
         </div>
-        <div className="pt-4 border-t border-slate-800 flex justify-end">
-          <button type="submit" disabled={isSubmitting || !!balanceError} className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50">
-            {isSubmitting ? 'Saving...' : 'Log Position'}
-            {!isSubmitting && <Send className="w-4 h-4" />}
+        <div className="flex justify-end border-t border-adm-line pt-4">
+          <button type="submit" disabled={isSubmitting || !!balanceError} className="flex items-center gap-2 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-5 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-hi hover:border-adm-desk-crypto disabled:opacity-40">
+            {isSubmitting ? 'Saving…' : 'Log position'}
+            {!isSubmitting && <Send className="h-3.5 w-3.5" />}
           </button>
         </div>
       </form>

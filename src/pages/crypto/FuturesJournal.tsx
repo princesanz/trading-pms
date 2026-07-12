@@ -3,12 +3,17 @@ import { useCryptoData } from '../../hooks/useCryptoData';
 import { format, parseISO } from 'date-fns';
 import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/utils';
-import { Check, X, DollarSign, Trash2 } from 'lucide-react';
-import { useCryptoPrices } from '../../contexts/CryptoPriceProvider';
+import { RefreshCw, X } from 'lucide-react';
+import { useCryptoPolling, useCryptoPriceMap, useCryptoFeedMeta, refreshCrypto } from '../../state/prices';
 import { resolvePrice, futuresUnrealized } from '../../lib/cryptoLivePnl';
-import { PriceStatusBadge } from '../../components/PriceStatusBadge';
 import { useAuth } from '../../contexts/AuthProvider';
 import { normalizeCashFlowTipe } from '../../lib/balanceCalc';
+import { PageHeader } from '../../components/adm/PageHeader';
+import { StatusBadge } from '../../components/adm/StatusBadge';
+import { DataTable, type Column } from '../../components/adm/DataTable';
+import { HScrollTable } from '../../components/HScrollTable';
+import { fmtUsd, fmtSignedUsd, fmtCryptoPrice } from '../../design/format';
+import type { CryptoFuturesTrade } from '../../types';
 
 async function recalculateCryptoBalances(overridePnl?: { tradeId: string; pnlValue: number }) {
   const { data: allTrades, error: tradesError } = await supabase
@@ -86,20 +91,41 @@ async function recalculateCryptoBalances(overridePnl?: { tradeId: string; pnlVal
   }
 }
 
+const inputCls = 'w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none';
+const labelCls = 'mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim';
+
+/* Per-row live cells — subscribe to the crypto price map, so a tick re-renders
+ * only the mark/uPnL of open positions. Raw swap, no animation. */
+function LiveMark({ trade }: { trade: CryptoFuturesTrade }) {
+  const prices = useCryptoPriceMap();
+  if (trade.status !== 'Open') return <span className="text-adm-ink-dim">—</span>;
+  const p = resolvePrice(prices, trade.coin);
+  return p != null ? <span className="text-adm-ink-hi">{fmtCryptoPrice(p)}</span> : <span className="text-adm-ink-dim">—</span>;
+}
+function LiveUPnl({ trade }: { trade: CryptoFuturesTrade }) {
+  const prices = useCryptoPriceMap();
+  if (trade.status !== 'Open') return <span className="text-adm-ink-dim">—</span>;
+  const p = resolvePrice(prices, trade.coin);
+  if (p == null) return <span className="text-adm-ink-dim">—</span>;
+  const u = futuresUnrealized(trade, p);
+  return <span className={u < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(u)}</span>;
+}
+
 export function FuturesJournal() {
+  useCryptoPolling();
   const { futuresTrades, loading, error: fetchError, refetch } = useCryptoData();
-  const { prices, status, lastUpdated, refresh } = useCryptoPrices();
+  const feed = useCryptoFeedMeta();
   const { isAdmin } = useAuth();
   const [filterCoin, setFilterCoin] = useState('');
   const [filterStatus, setFilterStatus] = useState<'' | 'Open' | 'Closed'>('');
-  const [closingTradeId, setClosingTradeId] = useState<string | null>(null);
+  const [closingTrade, setClosingTrade] = useState<CryptoFuturesTrade | null>(null);
   const [closePnl, setClosePnl] = useState('');
   const [closeFunding, setCloseFunding] = useState('');
   const [closeExit, setCloseExit] = useState('');
   const [closeDate, setCloseDate] = useState(new Date().toISOString().split('T')[0]);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const resetClose = () => { setClosingTradeId(null); setClosePnl(''); setCloseFunding(''); setCloseExit(''); setCloseDate(new Date().toISOString().split('T')[0]); };
+  const resetClose = () => { setClosingTrade(null); setClosePnl(''); setCloseFunding(''); setCloseExit(''); setCloseDate(new Date().toISOString().split('T')[0]); };
 
   const coins = useMemo(() => Array.from(new Set(futuresTrades.map(t => t.coin))), [futuresTrades]);
 
@@ -154,123 +180,140 @@ export function FuturesJournal() {
     }
   };
 
-  if (loading) return <div className="p-8 text-slate-400">Loading journal...</div>;
+  const isEdit = closingTrade?.status === 'Closed';
+
+  const columns: Column<CryptoFuturesTrade>[] = [
+    // Dates aligned to the full "DD MMM YYYY" / 124px treatment used on the Forex
+    // journal so no desk shows a truncated or ambiguous 2-digit year.
+    { key: 'tanggal', header: 'Date', width: '124px', sortValue: t => t.tanggal, cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
+    // 112px: longest Binance base symbol ("1000000BONK") measures 103px incl. padding.
+    { key: 'coin', header: 'Coin', width: '112px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.coin}</span> },
+    { key: 'posisi', header: 'Side', width: '76px', cell: t => <StatusBadge kind={t.posisi === 'Long' ? 'long' : 'short'} label={t.posisi.toUpperCase()} /> },
+    // 136px fits a 7–8-figure notional; live-measured "$10,000,000.00" = 134px.
+    { key: 'notional_usd', header: 'Notional', numeric: true, width: '136px', sortValue: t => t.notional_usd, cell: t => fmtUsd(t.notional_usd) },
+    { key: 'leverage', header: 'Lev', numeric: true, width: '60px', cell: t => `${t.leverage}x` },
+    // Adaptive crypto precision: BTC 2 dp, sub-cent coins up to 8 dp; live worst 102px.
+    { key: 'harga_entry', header: 'Entry', numeric: true, width: '104px', cell: t => fmtCryptoPrice(t.harga_entry) },
+    { key: 'harga_exit', header: 'Exit', numeric: true, width: '104px', cell: t => (t.harga_exit != null ? fmtCryptoPrice(t.harga_exit) : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'mark', header: 'Mark', numeric: true, width: '104px', sortValue: () => null, cell: t => <LiveMark trade={t} /> },
+    { key: 'status', header: 'Status', width: '84px', cell: t => <StatusBadge kind={t.status === 'Open' ? 'open' : 'closed'} /> },
+    { key: 'tanggal_tutup', header: 'Closed', width: '124px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yyyy') : '—'}</span> },
+    // 136px: live-measured "−$1,234,567.89" = 134px; header "UNRLZD P&L" 94px.
+    { key: 'upnl', header: 'Unrlzd P&L', numeric: true, width: '136px', sortValue: () => null, cell: t => <LiveUPnl trade={t} /> },
+    {
+      key: 'net_pnl', header: 'Net P&L', numeric: true, width: '120px', sortValue: t => t.net_pnl ?? null,
+      cell: t => t.net_pnl == null ? <span className="text-adm-ink-dim">—</span> : <span className={t.net_pnl > 0 ? 'text-adm-up' : t.net_pnl < 0 ? 'text-adm-down' : 'text-adm-ink-mid'}>{fmtSignedUsd(t.net_pnl)}</span>,
+    },
+    { key: 'persen_profit_loss', header: 'Gain %', numeric: true, width: '96px', sortValue: t => t.persen_profit_loss ?? null, cell: t => (t.persen_profit_loss != null ? `${t.persen_profit_loss.toFixed(2)}%` : '—') },
+    {
+      key: 'actions', header: '', width: '120px', align: 'right',
+      cell: t => isAdmin ? (
+        <span className="flex items-center justify-end gap-1">
+          {t.status === 'Open' && (
+            <button onClick={() => { setClosingTrade(t); setClosePnl(''); setCloseFunding(t.funding_rate_paid?.toString() || ''); setCloseExit(''); setCloseDate(new Date().toISOString().split('T')[0]); }} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-desk-crypto hover:bg-adm-bg2" title="Close position">Close</button>
+          )}
+          {t.status === 'Closed' && (
+            <button onClick={() => { setClosingTrade(t); setClosePnl(t.net_pnl?.toString() || ''); setCloseFunding(t.funding_rate_paid?.toString() || ''); setCloseExit(t.harga_exit?.toString() || ''); setCloseDate(t.tanggal_tutup || new Date().toISOString().split('T')[0]); }} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-ink-mid hover:bg-adm-bg2" title="Edit PnL / exit">Edit</button>
+          )}
+          <button onClick={() => handleDeleteFutures(t.id)} disabled={isProcessing} className="rounded-adm-sm border border-adm-line px-1.5 py-0.5 font-adm-data text-adm-micro uppercase text-adm-down hover:bg-adm-bg2 disabled:opacity-40" title="Delete position">Del</button>
+        </span>
+      ) : null,
+    },
+  ];
+
+  if (loading) return <div className="flex h-64 items-center justify-center font-adm-data text-adm-sm text-adm-ink-dim">Loading journal…</div>;
+
+  const feedSecs = feed.lastUpdated != null ? Math.max(0, Math.round((Date.now() - feed.lastUpdated) / 1000)) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <PageHeader
+        desk="crypto"
+        title="Futures Journal"
+        sub="perpetuals · live unrealized P&L"
+        right={
+          <div className="flex items-center gap-2">
+            <StatusBadge kind={feed.status} detail={feed.status === 'live' && feedSecs != null ? `${feedSecs}s ago` : undefined} title="Binance feed" />
+            <button onClick={refreshCrypto} title="Refresh prices" aria-label="Refresh prices" className="flex items-center justify-center rounded-adm-sm border border-adm-line p-1 text-adm-ink-mid hover:bg-adm-bg2">
+              <RefreshCw className={cn('h-3.5 w-3.5', feed.status === 'loading' && 'animate-spin')} />
+            </button>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value as '' | 'Open' | 'Closed')} className="rounded-adm-sm border border-adm-line bg-adm-bg1 px-2 py-1 font-adm-data text-adm-xs text-adm-ink-mid focus:border-adm-line2 focus:outline-none">
+              <option value="">All status</option>
+              <option value="Open">Open</option>
+              <option value="Closed">Closed</option>
+            </select>
+            <select value={filterCoin} onChange={e => setFilterCoin(e.target.value)} className="rounded-adm-sm border border-adm-line bg-adm-bg1 px-2 py-1 font-adm-data text-adm-xs text-adm-ink-mid focus:border-adm-line2 focus:outline-none">
+              <option value="">All coins</option>
+              {coins.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        }
+      />
+
       {fetchError && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm">
+        <p className="rounded-adm border border-adm-down/40 bg-adm-down-fill px-3 py-2 font-adm-data text-adm-xs text-adm-down">
           Failed to load journal data: {fetchError} — the list below may be stale.{' '}
-          <button onClick={() => refetch()} className="underline hover:text-rose-300">Retry</button>
+          <button onClick={() => refetch()} className="underline hover:text-adm-ink-hi">Retry</button>
+        </p>
+      )}
+
+      {/* Same treatment as the Forex journal: sticky h-scroll wrapper, no cell
+          truncation, 42px rows, 10/page. minWidth is the sum of the re-measured
+          column tracks (1460px). */}
+      <HScrollTable>
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey={t => t.id}
+          minWidth={1500}
+          noTruncate
+          hScroll={false}
+          pageSize={10}
+          virtualizeOver={Infinity}
+          rowHeight={42}
+          empty="No futures trades found."
+        />
+      </HScrollTable>
+
+      {/* Close / edit drawer — same fields + mutation path as the old inline form. */}
+      {closingTrade && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-[rgba(10,12,14,0.85)]" onClick={() => !isProcessing && resetClose()}>
+          <div className="h-full w-full max-w-sm overflow-y-auto border-l border-adm-line2 bg-adm-bg1 p-5" onClick={e => e.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">{isEdit ? 'Edit closed futures' : 'Close position'}</p>
+                <h3 className="font-adm-ui text-adm-lg font-medium text-adm-ink-hi">{closingTrade.coin} · {closingTrade.posisi}</h3>
+              </div>
+              <button onClick={resetClose} className="text-adm-ink-dim hover:text-adm-ink-hi" title="Cancel" aria-label="Cancel"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className={labelCls}>Gross P&L (USD)</label>
+                <input type="number" value={closePnl} onChange={e => setClosePnl(e.target.value)} className={inputCls} placeholder="e.g. 120.50 or -45" autoFocus />
+              </div>
+              <div>
+                <label className={labelCls}>Funding fee (USD)</label>
+                <input type="number" value={closeFunding} onChange={e => setCloseFunding(e.target.value)} className={inputCls} placeholder="0" />
+              </div>
+              <div>
+                <label className={labelCls}>Exit price (optional)</label>
+                <input type="number" value={closeExit} onChange={e => setCloseExit(e.target.value)} className={inputCls} placeholder="Leave blank to skip" />
+              </div>
+              <div>
+                <label className={labelCls}>Close date</label>
+                <input type="date" value={closeDate} onChange={e => setCloseDate(e.target.value)} className={inputCls} />
+              </div>
+              <p className="font-adm-data text-adm-micro text-adm-ink-dim">Net P&L = gross − funding fee. Balances replay on save.</p>
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => handleClose(closingTrade.id)} disabled={isProcessing} className="flex-1 rounded-adm-sm border border-adm-line2 bg-adm-bg2 px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-hi hover:border-adm-desk-crypto disabled:opacity-40">
+                  {isProcessing ? 'Saving…' : isEdit ? 'Save changes' : 'Confirm close'}
+                </button>
+                <button onClick={resetClose} disabled={isProcessing} className="rounded-adm-sm border border-adm-line px-4 py-2 font-adm-data text-adm-xs uppercase text-adm-ink-mid hover:bg-adm-bg2">Cancel</button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <h2 className="text-2xl font-bold tracking-tight">Futures Journal</h2>
-        <div className="flex items-center gap-3">
-          <PriceStatusBadge status={status} lastUpdated={lastUpdated} onRefresh={refresh} />
-          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value as '' | 'Open' | 'Closed')} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none">
-            <option value="">All Status</option>
-            <option value="Open">Open</option>
-            <option value="Closed">Closed</option>
-          </select>
-          <select value={filterCoin} onChange={e => setFilterCoin(e.target.value)} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-cyan-500 outline-none">
-            <option value="">All Coins</option>
-            {coins.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-            <tr>
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Coin</th>
-              <th className="px-4 py-3">Pos</th>
-              <th className="px-4 py-3">Notional</th>
-              <th className="px-4 py-3">Lev</th>
-              <th className="px-4 py-3">Entry</th>
-              <th className="px-4 py-3">Exit</th>
-              <th className="px-4 py-3 text-right">Mark</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Closed</th>
-              <th className="px-4 py-3 text-right">Unrealized P&L</th>
-              <th className="px-4 py-3 text-right">Net PnL</th>
-              <th className="px-4 py-3 text-right">Gain %</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(trade => {
-              const markPrice = trade.status === 'Open' ? resolvePrice(prices, trade.coin) : undefined;
-              const uPnl = futuresUnrealized(trade, markPrice);
-              const showUpnl = trade.status === 'Open' && markPrice != null;
-              return (
-              <tr key={trade.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                <td className="px-4 py-3 text-slate-300">{format(parseISO(trade.tanggal), 'dd MMM yyyy')}</td>
-                <td className="px-4 py-3 font-medium text-slate-200">{trade.coin}</td>
-                <td className="px-4 py-3">
-                  <span className={cn('px-2 py-0.5 rounded text-xs font-medium', trade.posisi === 'Long' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400')}>{trade.posisi}</span>
-                </td>
-                <td className="px-4 py-3 text-slate-300">${trade.notional_usd.toLocaleString()}</td>
-                <td className="px-4 py-3 text-slate-400">{trade.leverage}x</td>
-                <td className="px-4 py-3 text-slate-300">{trade.harga_entry}</td>
-                <td className="px-4 py-3 text-slate-300">{trade.harga_exit != null ? trade.harga_exit : <span className="text-slate-500">—</span>}</td>
-                <td className="px-4 py-3 text-right text-slate-300">
-                  {showUpnl ? `$${markPrice!.toLocaleString(undefined, { maximumFractionDigits: 8 })}` : <span className="text-slate-500">—</span>}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={cn('px-2 py-0.5 rounded text-xs font-medium', trade.status === 'Open' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-slate-700/30 text-slate-300 border border-slate-600/20')}>{trade.status}</span>
-                </td>
-                <td className="px-4 py-3 text-slate-400">{trade.tanggal_tutup ? format(parseISO(trade.tanggal_tutup), 'dd MMM yyyy') : <span className="text-slate-500">—</span>}</td>
-                <td className="px-4 py-3 text-right">
-                  {showUpnl ? (
-                    <span className={cn('font-medium', uPnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                      {uPnl >= 0 ? '+' : ''}${uPnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </span>
-                  ) : <span className="text-slate-500">—</span>}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {closingTradeId === trade.id ? (
-                    <div className="flex flex-col items-end gap-1">
-                      <input type="number" value={closePnl} onChange={e => setClosePnl(e.target.value)} className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Gross PnL" autoFocus />
-                      <input type="number" value={closeFunding} onChange={e => setCloseFunding(e.target.value)} className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Funding Fee" />
-                      <input type="number" value={closeExit} onChange={e => setCloseExit(e.target.value)} className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-cyan-500" placeholder="Exit price (opt)" />
-                      <input type="date" value={closeDate} onChange={e => setCloseDate(e.target.value)} className="w-28 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-cyan-500" title="Close date" />
-                      <div className="flex gap-1">
-                        <button onClick={() => handleClose(trade.id)} disabled={isProcessing} className="p-1 bg-cyan-600 rounded text-white hover:bg-cyan-500 disabled:opacity-50" title="Confirm"><Check className="w-3 h-3" /></button>
-                        <button onClick={resetClose} className="p-1 bg-slate-700 rounded text-white hover:bg-slate-600" title="Cancel"><X className="w-3 h-3" /></button>
-                      </div>
-                    </div>
-                  ) : (
-                    <span className={cn('font-medium', trade.net_pnl != null && trade.net_pnl > 0 ? 'text-emerald-400' : trade.net_pnl != null && trade.net_pnl < 0 ? 'text-rose-400' : 'text-slate-500')}>
-                      {trade.net_pnl != null ? `$${trade.net_pnl.toLocaleString()}` : '—'}
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-400">{trade.persen_profit_loss != null ? `${trade.persen_profit_loss.toFixed(2)}%` : '—'}</td>
-                <td className="px-4 py-3 text-right">
-                  {isAdmin && closingTradeId !== trade.id && (
-                    <div className="flex items-center justify-end gap-2">
-                      {trade.status === 'Open' && (
-                        <button onClick={() => { setClosingTradeId(trade.id); setClosePnl(''); setCloseFunding(trade.funding_rate_paid?.toString() || ''); setCloseExit(''); setCloseDate(new Date().toISOString().split('T')[0]); }} className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded transition-colors" title="Close Position"><DollarSign className="w-3 h-3" />Close</button>
-                      )}
-                      {trade.status === 'Closed' && (
-                        <button onClick={() => { setClosingTradeId(trade.id); setClosePnl(trade.net_pnl?.toString() || ''); setCloseFunding(trade.funding_rate_paid?.toString() || ''); setCloseExit(trade.harga_exit?.toString() || ''); setCloseDate(trade.tanggal_tutup || new Date().toISOString().split('T')[0]); }} className="text-slate-500 hover:text-slate-300 text-xs" title="Edit PnL / exit">Edit</button>
-                      )}
-                      <button onClick={() => handleDeleteFutures(trade.id)} disabled={isProcessing} className="text-slate-400 hover:text-rose-400 disabled:opacity-50" title="Delete position"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-              );
-            })}
-            {filtered.length === 0 && (
-              <tr><td colSpan={14} className="px-4 py-8 text-center text-slate-500">No futures trades found.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }

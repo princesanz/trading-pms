@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { LayoutDashboard, History, PlusCircle, ArrowRightLeft, Coins, LineChart, Briefcase, BookOpen, Download, Globe, LogIn, LogOut, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -37,11 +37,23 @@ const sahamNav = [
 
 type DeskId = 'forex' | 'crypto' | 'saham';
 
-const deskConfig: Record<DeskId, { label: string; accent: { bg: string; text: string; bgActive: string } }> = {
-  forex:  { label: 'Forex & Commodities', accent: { bg: 'rgba(16,185,129,0.1)', text: '#34d399', bgActive: 'rgba(16,185,129,0.15)' } },
-  crypto: { label: 'Crypto Desk',         accent: { bg: 'rgba(6,182,212,0.1)',  text: '#22d3ee', bgActive: 'rgba(6,182,212,0.15)' } },
-  saham:  { label: 'Equities Desk',       accent: { bg: 'rgba(245,158,11,0.1)', text: '#fbbf24', bgActive: 'rgba(245,158,11,0.15)' } },
+// Desk identity mirrors PageHeader's DESK map — same hues, same labels, so the
+// rail and the page header always agree. Static class strings (Tailwind JIT).
+const deskConfig: Record<DeskId, {
+  label: string;
+  code: string;
+  icon: typeof LineChart;
+  text: string;   // desk-hue text
+  tick: string;   // desk-hue fill (accent bars, rail)
+}> = {
+  forex:  { label: 'FOREX · COMMODITIES', code: 'FX', icon: LineChart, text: 'text-adm-desk-forex',  tick: 'bg-adm-desk-forex' },
+  crypto: { label: 'CRYPTO DESK',         code: 'CR', icon: Coins,     text: 'text-adm-desk-crypto', tick: 'bg-adm-desk-crypto' },
+  saham:  { label: 'EQUITIES · SAHAM',    code: 'EQ', icon: Briefcase, text: 'text-adm-desk-saham',  tick: 'bg-adm-desk-saham' },
 };
+
+const deskOrder: DeskId[] = ['forex', 'crypto', 'saham'];
+const deskHome: Record<DeskId, string> = { forex: '/forex', crypto: '/crypto', saham: '/saham' };
+const deskName: Record<DeskId, string> = { forex: 'Forex', crypto: 'Crypto', saham: 'Saham' };
 
 function getDesk(pathname: string): DeskId {
   if (pathname.startsWith('/saham')) return 'saham';
@@ -57,6 +69,24 @@ function getNav(desk: DeskId) {
   if (desk === 'saham') return sahamNav;
   if (desk === 'crypto') return cryptoNav;
   return forexNav;
+}
+
+/** Session clock, WIB (UTC+7). Raw text swap once a second — never animated. */
+function SessionClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const wib = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false, timeZone: 'Asia/Jakarta',
+  }).format(now);
+  return (
+    <span className="font-adm-data text-adm-micro text-adm-ink-dim tabular-nums">
+      {wib}<span className="text-adm-ink-dim/70"> WIB</span>
+    </span>
+  );
 }
 
 export function AppLayout() {
@@ -83,158 +113,168 @@ export function AppLayout() {
   if (overview && !isAdmin) return <Outlet />;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col md:flex-row">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-adm-bg0 text-adm-ink-hi flex flex-col md:flex-row">
+      {/* Sidebar — terminal rail on the adm token set */}
       <nav
         className={cn(
-          "w-full bg-slate-900 border-b md:border-r border-slate-800 p-4 shrink-0 flex flex-col transition-[width] duration-200 ease-in-out",
-          collapsed ? "md:w-16 md:px-2" : "md:w-64"
+          'relative w-full bg-adm-bg1 border-b md:border-b-0 md:border-r border-adm-line shrink-0 flex flex-col',
+          'transition-[width] duration-[120ms] ease-in-out',
+          collapsed ? 'md:w-14' : 'md:w-60'
         )}
       >
-        <div className={cn("flex items-center mb-6 mt-2", collapsed ? "md:flex-col md:gap-2 md:px-0 gap-2 px-2" : "gap-2 px-2")}>
-          <div className="w-8 h-8 bg-emerald-500 rounded-md flex items-center justify-center font-bold text-slate-950 shrink-0">
-            PMS
+        {/* Desk rail — full-height 2px accent in the active desk hue */}
+        <span
+          aria-hidden
+          className={cn(
+            'absolute left-0 top-0 h-0.5 w-full md:h-full md:w-0.5',
+            overview ? 'bg-adm-line2' : config.tick
+          )}
+        />
+
+        {/* Masthead */}
+        <div className={cn('flex items-center gap-2 border-b border-adm-line px-3 h-12', collapsed && 'md:justify-center md:px-0')}>
+          <div className={cn('min-w-0', collapsed && 'md:hidden')}>
+            <p className="font-adm-data text-adm-micro uppercase text-adm-ink-hi truncate">SANZ CAPITAL</p>
+            <p className="font-adm-data text-[9px] leading-3 uppercase tracking-[0.14em] text-adm-ink-dim">PORTFOLIO MGMT SYSTEM</p>
           </div>
-          <h1 className={cn("text-xl font-bold tracking-tight", collapsed && "md:hidden")}>Trading PMS</h1>
           <button
             onClick={toggleCollapsed}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden md:flex ml-auto items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0"
+            className="hidden md:flex ml-auto items-center justify-center w-6 h-6 rounded-adm-sm border border-adm-line text-adm-ink-dim hover:text-adm-ink-hi hover:bg-adm-bg2 transition-colors duration-[120ms] shrink-0"
           >
-            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            {collapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
           </button>
         </div>
 
-        {/* Overview — unified landing, above the desks */}
-        <Link
-          to="/overview"
-          title={collapsed ? 'Overview' : undefined}
-          className={cn(
-            "flex items-center gap-3 py-2.5 mb-3 rounded-lg transition-colors font-medium text-sm",
-            collapsed ? "md:justify-center md:px-0 px-4" : "px-4",
-            overview ? "bg-slate-100/10 text-slate-100" : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
-          )}
-        >
-          <Globe className="w-5 h-5 shrink-0" />
-          <span className={cn(collapsed && "md:hidden")}>Overview</span>
-        </Link>
+        <div className={cn('flex md:flex-col md:flex-1 min-w-0 items-center md:items-stretch gap-2 md:gap-0 overflow-x-auto md:overflow-visible px-3 md:px-0 py-2 md:py-0')}>
+          {/* Overview — consolidated landing, above the desks */}
+          <Link
+            to="/overview"
+            title={collapsed ? 'Overview' : undefined}
+            className={cn(
+              'flex items-center gap-2.5 h-8 md:h-9 shrink-0 md:mx-2 md:mt-2 px-2.5 rounded-adm-sm font-adm-data text-adm-micro uppercase transition-colors duration-[120ms]',
+              collapsed && 'md:justify-center md:px-0',
+              overview
+                ? 'bg-adm-bg2 text-adm-ink-hi'
+                : 'text-adm-ink-mid hover:text-adm-ink-hi hover:bg-adm-bg2'
+            )}
+          >
+            <Globe className="w-3.5 h-3.5 shrink-0" />
+            <span className={cn(collapsed && 'md:hidden')}>Overview</span>
+          </Link>
 
-        {/* Desk navigation — admin only. Public visitors see just the Overview. */}
-        {isAdmin && (<>
-        {/* Desk Switcher — 3 desks */}
-        <div className={cn("flex gap-1 p-1 mb-4 bg-slate-950 rounded-lg border border-slate-800", collapsed && "md:flex-col")}>
-          <Link
-            to="/forex"
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-md text-xs font-semibold transition-all",
-              !overview && desk === 'forex'
-                ? "shadow-sm"
-                : "text-slate-500 hover:text-slate-300"
+          {/* Desk navigation — admin only. Public visitors see just the Overview. */}
+          {isAdmin && (<>
+            {/* Desk switcher — collapsed = single active-desk cell (glanceable); switching
+                is deferred to expanding the rail. The full FX/CR/EQ strip is expanded-only. */}
+            {collapsed && (
+              <Link
+                to={deskHome[desk]}
+                title={deskName[desk]}
+                className="relative hidden md:flex md:mx-2 md:mt-3 items-center justify-center h-8 rounded-adm-sm border border-adm-line bg-adm-bg2 transition-colors duration-[120ms]"
+              >
+                <span aria-hidden className={cn('absolute left-0 top-0 h-full w-0.5', config.tick)} />
+                {(() => { const DeskIcon = config.icon; return <DeskIcon className={cn('w-3.5 h-3.5 shrink-0', config.text)} />; })()}
+              </Link>
             )}
-            style={!overview && desk === 'forex' ? { backgroundColor: deskConfig.forex.accent.bgActive, color: deskConfig.forex.accent.text } : undefined}
-            title={collapsed ? 'Forex' : undefined}
-          >
-            <LineChart className="w-3.5 h-3.5 shrink-0" />
-            <span className={cn(collapsed && "md:hidden")}>Forex</span>
-          </Link>
-          <Link
-            to="/crypto"
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-md text-xs font-semibold transition-all",
-              !overview && desk === 'crypto'
-                ? "shadow-sm"
-                : "text-slate-500 hover:text-slate-300"
-            )}
-            style={!overview && desk === 'crypto' ? { backgroundColor: deskConfig.crypto.accent.bgActive, color: deskConfig.crypto.accent.text } : undefined}
-            title={collapsed ? 'Crypto' : undefined}
-          >
-            <Coins className="w-3.5 h-3.5 shrink-0" />
-            <span className={cn(collapsed && "md:hidden")}>Crypto</span>
-          </Link>
-          <Link
-            to="/saham"
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-md text-xs font-semibold transition-all",
-              !overview && desk === 'saham'
-                ? "shadow-sm"
-                : "text-slate-500 hover:text-slate-300"
-            )}
-            style={!overview && desk === 'saham' ? { backgroundColor: deskConfig.saham.accent.bgActive, color: deskConfig.saham.accent.text } : undefined}
-            title={collapsed ? 'Saham' : undefined}
-          >
-            <Briefcase className="w-3.5 h-3.5 shrink-0" />
-            <span className={cn(collapsed && "md:hidden")}>Saham</span>
-          </Link>
+
+            {/* Desk switcher — square hairline strip, mono codes, desk-hue tick on the active cell */}
+            <div className={cn('flex shrink-0 rounded-adm-sm border border-adm-line divide-x divide-adm-line overflow-hidden md:mx-2 md:mt-3', collapsed && 'md:hidden')}>
+              {deskOrder.map((d) => {
+                const c = deskConfig[d];
+                const active = !overview && desk === d;
+                const DeskIcon = c.icon;
+                return (
+                  <Link
+                    key={d}
+                    to={deskHome[d]}
+                    className={cn(
+                      'relative flex-1 flex items-center justify-center gap-1.5 h-8 px-2 font-adm-data text-adm-micro uppercase transition-colors duration-[120ms]',
+                      active ? cn('bg-adm-bg2', c.text) : 'text-adm-ink-dim hover:text-adm-ink-mid hover:bg-adm-bg2'
+                    )}
+                  >
+                    {active && <span aria-hidden className={cn('absolute left-0 top-0 h-0.5 w-full', c.tick)} />}
+                    <DeskIcon className="w-3 h-3 shrink-0" />
+                    <span>{c.code}</span>
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* Desk label — 2px tick + mono label, same grammar as PageHeader */}
+            <div className={cn('hidden md:flex items-center gap-2 px-3 mt-4 mb-1.5', collapsed && 'md:hidden')}>
+              <span aria-hidden className={cn('h-3 w-0.5', overview ? 'bg-adm-desk-overview' : config.tick)} />
+              <p className={cn('font-adm-data text-adm-micro uppercase truncate', overview ? 'text-adm-ink-mid' : config.text)}>
+                {overview ? 'CONSOLIDATED' : config.label}
+              </p>
+            </div>
+
+            <ul className={cn('flex md:flex-col shrink-0 gap-2 md:gap-px', collapsed && 'md:mt-3')}>
+              {navItems.map((item) => {
+                const isActive = location.pathname === item.path;
+                const Icon = item.icon;
+
+                return (
+                  <li key={item.path} className="shrink-0">
+                    <Link
+                      to={item.path}
+                      title={collapsed ? item.name : undefined}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={cn(
+                        'relative flex items-center gap-2.5 h-8 md:h-7 px-2.5 md:px-3 rounded-adm-sm md:rounded-none font-adm-data text-adm-micro uppercase transition-colors duration-[120ms]',
+                        collapsed && 'md:justify-center md:px-0',
+                        isActive
+                          ? cn('bg-adm-bg2 text-adm-ink-hi md:bg-adm-bg2')
+                          : 'text-adm-ink-mid hover:text-adm-ink-hi hover:bg-adm-bg2'
+                      )}
+                    >
+                      {isActive && <span aria-hidden className={cn('absolute left-0 top-0 h-full w-0.5 hidden md:block', config.tick)} />}
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      <span className={cn(collapsed && 'md:hidden')}>{item.name}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </>)}
         </div>
 
-        {/* Desk Label */}
-        <p
-          className={cn("text-[10px] font-semibold uppercase tracking-widest px-3 mb-2", collapsed && "md:hidden")}
-          style={{ color: config.accent.text, opacity: 0.6 }}
-        >
-          {overview ? 'Consolidated' : config.label}
-        </p>
-
-        <ul className="flex md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            const Icon = item.icon;
-
-            return (
-              <li key={item.path} className="shrink-0">
-                <Link
-                  to={item.path}
-                  title={collapsed ? item.name : undefined}
-                  className={cn(
-                    "flex items-center gap-3 py-2.5 rounded-lg transition-colors font-medium text-sm",
-                    collapsed ? "md:justify-center md:px-0 px-4" : "px-4",
-                    isActive
-                      ? ""
-                      : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
-                  )}
-                  style={isActive ? {
-                    backgroundColor: config.accent.bg,
-                    color: config.accent.text,
-                  } : undefined}
-                >
-                  <Icon className="w-5 h-5 shrink-0" />
-                  <span className={cn(collapsed && "md:hidden")}>{item.name}</span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-        </>)}
-
-        {/* Auth control — pinned to the bottom of the sidebar */}
-        <div className="mt-auto pt-4 border-t border-slate-800">
-          {isAdmin ? (
-            <div className="space-y-2">
-              <p className={cn("text-[10px] text-slate-500 px-2 truncate", collapsed && "md:hidden")} title={session?.user?.email ?? ''}>
-                Signed in · {session?.user?.email ?? 'admin'}
-              </p>
-              <button
-                onClick={() => signOut()}
-                title={collapsed ? 'Sign Out' : undefined}
-                className={cn(
-                  "w-full flex items-center gap-2 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors",
-                  collapsed ? "md:justify-center md:px-0 px-4" : "px-4"
-                )}
+        {/* Session block — status-dot grammar, pinned to the bottom */}
+        <div className="mt-auto border-t border-adm-line px-3 py-2.5 space-y-1.5">
+          <div className={cn('flex items-center justify-between gap-2', collapsed && 'md:justify-center')}>
+            <span className={cn('inline-flex items-center gap-1.5 min-w-0', collapsed && 'md:justify-center')}>
+              <span aria-hidden className={cn('h-1.5 w-1.5 rounded-full shrink-0', isAdmin ? 'bg-adm-up' : 'bg-adm-ink-dim')} />
+              <span
+                className={cn('font-adm-data text-adm-micro uppercase truncate', isAdmin ? 'text-adm-ink-mid' : 'text-adm-ink-dim', collapsed && 'md:hidden')}
+                title={session?.user?.email ?? ''}
               >
-                <LogOut className="w-4 h-4 shrink-0" /> <span className={cn(collapsed && "md:hidden")}>Sign Out</span>
-              </button>
-            </div>
+                {isAdmin ? (session?.user?.email ?? 'ADMIN') : 'PUBLIC'}
+              </span>
+            </span>
+            <span className={cn('shrink-0', collapsed && 'md:hidden')}><SessionClock /></span>
+          </div>
+          {isAdmin ? (
+            <button
+              onClick={() => signOut()}
+              title={collapsed ? 'Sign Out' : undefined}
+              className={cn(
+                'w-full flex items-center gap-2 h-7 px-1 rounded-adm-sm font-adm-data text-adm-micro uppercase text-adm-ink-dim hover:text-adm-ink-hi hover:bg-adm-bg2 transition-colors duration-[120ms]',
+                collapsed && 'md:justify-center md:px-0'
+              )}
+            >
+              <LogOut className="w-3.5 h-3.5 shrink-0" /> <span className={cn(collapsed && 'md:hidden')}>Sign Out</span>
+            </button>
           ) : (
             <Link
               to="/login"
               title={collapsed ? 'Admin Sign In' : undefined}
               className={cn(
-                "w-full flex items-center gap-2 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors",
-                collapsed ? "md:justify-center md:px-0 px-4" : "px-4"
+                'w-full flex items-center gap-2 h-7 px-1 rounded-adm-sm font-adm-data text-adm-micro uppercase text-adm-ink-dim hover:text-adm-ink-hi hover:bg-adm-bg2 transition-colors duration-[120ms]',
+                collapsed && 'md:justify-center md:px-0'
               )}
             >
-              <LogIn className="w-4 h-4 shrink-0" /> <span className={cn(collapsed && "md:hidden")}>Admin Sign In</span>
+              <LogIn className="w-3.5 h-3.5 shrink-0" /> <span className={cn(collapsed && 'md:hidden')}>Admin Sign In</span>
             </Link>
           )}
         </div>

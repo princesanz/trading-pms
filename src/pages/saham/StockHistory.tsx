@@ -1,12 +1,19 @@
 import { useState, useMemo } from 'react';
-import { useEquitiesData } from '../../hooks/useEquitiesData';
 import { format, parseISO } from 'date-fns';
-import { cn } from '../../lib/utils';
 import { Trash2 } from 'lucide-react';
+import { useEquitiesData } from '../../hooks/useEquitiesData';
 import { supabase } from '../../lib/supabase';
 import { recalculateHolding } from '../../lib/stockCalc';
 import { useAuth } from '../../contexts/AuthProvider';
 import { getCurrencyForDesk } from '../../types';
+import { PageHeader } from '../../components/adm/PageHeader';
+import { DataTable, type Column } from '../../components/adm/DataTable';
+import { HScrollTable } from '../../components/HScrollTable';
+import { fmtIdr } from '../../design/format';
+
+type Tx = ReturnType<typeof useEquitiesData>['transactions'][number];
+
+const selectCls = 'rounded-adm-sm border border-adm-line bg-adm-bg1 px-2 py-1 font-adm-data text-adm-micro uppercase text-adm-ink-mid outline-none focus:border-adm-line2';
 
 export function StockHistory() {
   const { transactions, loading, error: fetchError, refetch } = useEquitiesData();
@@ -15,7 +22,7 @@ export function StockHistory() {
   const [filterTipe, setFilterTipe] = useState<'' | 'Buy' | 'Sell'>('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const handleDelete = async (tx: typeof transactions[0]) => {
+  const handleDelete = async (tx: Tx) => {
     if (!window.confirm(`Delete this ${tx.tipe} transaction for ${tx.emiten}? This reverses its cash flow and recalculates the holding. This cannot be undone.`)) return;
     setDeletingId(tx.id);
     try {
@@ -69,93 +76,80 @@ export function StockHistory() {
     let result = transactions;
     if (filterEmiten) result = result.filter(t => t.emiten === filterEmiten);
     if (filterTipe) result = result.filter(t => t.tipe === filterTipe);
-    return result.slice().reverse();
+    return result;
   }, [transactions, filterEmiten, filterTipe]);
 
-  if (loading) return <div className="p-8 text-slate-400">Loading history...</div>;
+  const columns: Column<Tx>[] = [
+    // Date aligned to the full "DD MMM YYYY" / 124px treatment shared with the other desks.
+    { key: 'tanggal', header: 'Date', width: '124px', sortValue: t => Date.parse(t.tanggal), cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
+    { key: 'emiten', header: 'Emiten', width: 'minmax(72px,1fr)', cell: t => <span className="text-adm-ink-hi">{t.emiten}</span> },
+    { key: 'tipe', header: 'Type', width: '70px', cell: t => <span className={t.tipe === 'Buy' ? 'text-adm-up' : 'text-adm-down'}>{t.tipe}</span> },
+    // Widths from live IBM Plex Mono measurement of realistic IDR upper bounds:
+    // lot up to 7 digits (79px); share price up to "Rp10,000,000" (118px); per-row
+    // value up to "Rp100,000,000,000" (157px); commission up to "Rp10,000,000" (118px).
+    { key: 'lot', header: 'Lot', numeric: true, width: '80px', sortValue: t => t.lot, cell: t => String(t.lot) },
+    { key: 'harga', header: 'Price', numeric: true, width: '120px', sortValue: t => t.harga, cell: t => fmtIdr(t.harga) },
+    { key: 'value', header: 'Value', numeric: true, width: '160px', sortValue: t => t.lot * 100 * t.harga, cell: t => fmtIdr(t.lot * 100 * t.harga) },
+    { key: 'komisi', header: 'Comm', numeric: true, width: '120px', sortValue: t => t.komisi || 0, cell: t => t.komisi > 0 ? fmtIdr(t.komisi) : <span className="text-adm-ink-dim">—</span> },
+    { key: 'tag', header: 'Tag', width: 'minmax(90px,1fr)', sortValue: t => t.analysis_tag_obj?.name ?? '', cell: t => t.analysis_tag_obj ? <span className="text-adm-desk-saham">{t.analysis_tag_obj.name}</span> : <span className="text-adm-ink-dim">—</span> },
+    // Free-text notes: under noTruncate the old inner `truncate`+title would never
+    // clip, so wrap to 2 lines (the Setup·Psych treatment) with a 160px floor.
+    { key: 'catatan', header: 'Notes', width: 'minmax(160px,1.4fr)', wrap: true, cell: t => t.catatan ? <span className="font-adm-ui text-adm-xs text-adm-ink-mid">{t.catatan}</span> : <span className="text-adm-ink-dim">—</span> },
+    ...(isAdmin ? [{
+      key: 'actions', header: '', width: '48px', align: 'right' as const,
+      cell: (t: Tx) => (
+        <button onClick={() => handleDelete(t)} disabled={deletingId === t.id} className="text-adm-ink-dim hover:text-adm-down disabled:opacity-50" title="Delete transaction" aria-label="Delete transaction">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      ),
+    }] : []),
+  ];
+
+  if (loading) return <div className="flex h-64 items-center justify-center font-adm-data text-adm-sm text-adm-ink-dim">Loading history…</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {fetchError && (
-        <div className="p-4 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm">
+        <div className="rounded-adm border border-adm-down/50 bg-adm-down-fill px-4 py-3 font-adm-data text-adm-xs text-adm-down">
           Failed to load transaction data: {fetchError} — the list below may be stale.{' '}
-          <button onClick={() => refetch()} className="underline hover:text-rose-300">Retry</button>
+          <button onClick={() => refetch()} className="underline hover:text-adm-ink-hi">Retry</button>
         </div>
       )}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Transaction History</h2>
-          <p className="text-slate-400 text-sm mt-1">Full audit trail of all stock transactions with analysis notes.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <select value={filterTipe} onChange={e => setFilterTipe(e.target.value as '' | 'Buy' | 'Sell')} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none">
-            <option value="">All Types</option>
-            <option value="Buy">Buy</option>
-            <option value="Sell">Sell</option>
-          </select>
-          <select value={filterEmiten} onChange={e => setFilterEmiten(e.target.value)} className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-amber-500 outline-none">
-            <option value="">All Emiten</option>
-            {emitens.map(e => <option key={e} value={e}>{e}</option>)}
-          </select>
-        </div>
-      </div>
+      <PageHeader
+        desk="saham"
+        title="Transaction History"
+        sub="full audit trail of stock buys & sells"
+        right={
+          <div className="flex items-center gap-2">
+            <select value={filterTipe} onChange={e => setFilterTipe(e.target.value as '' | 'Buy' | 'Sell')} className={selectCls}>
+              <option value="">All Types</option>
+              <option value="Buy">Buy</option>
+              <option value="Sell">Sell</option>
+            </select>
+            <select value={filterEmiten} onChange={e => setFilterEmiten(e.target.value)} className={selectCls}>
+              <option value="">All Emiten</option>
+              {emitens.map(e => <option key={e} value={e}>{e}</option>)}
+            </select>
+          </div>
+        }
+      />
 
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-slate-400 uppercase bg-slate-950/50">
-            <tr>
-              <th className="px-4 py-3">Date</th>
-              <th className="px-4 py-3">Emiten</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Lot</th>
-              <th className="px-4 py-3">Price</th>
-              <th className="px-4 py-3">Value</th>
-              <th className="px-4 py-3">Commission</th>
-              <th className="px-4 py-3">Analysis Tag</th>
-              <th className="px-4 py-3">Notes</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(tx => {
-              const value = tx.lot * 100 * tx.harga;
-              return (
-                <tr key={tx.id} className="border-b border-slate-800/50 hover:bg-slate-800/20">
-                  <td className="px-4 py-3 text-slate-300">{format(parseISO(tx.tanggal), 'dd MMM yyyy')}</td>
-                  <td className="px-4 py-3 font-medium text-slate-200">{tx.emiten}</td>
-                  <td className="px-4 py-3">
-                    <span className={cn('px-2 py-0.5 rounded text-xs font-medium', tx.tipe === 'Buy' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400')}>{tx.tipe}</span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-300">{tx.lot}</td>
-                  <td className="px-4 py-3 text-slate-300">Rp{tx.harga.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-slate-300">Rp{value.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-slate-400">{tx.komisi > 0 ? `Rp${tx.komisi.toLocaleString()}` : '—'}</td>
-                  <td className="px-4 py-3">
-                    {tx.analysis_tag_obj ? (
-                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">{tx.analysis_tag_obj.name}</span>
-                    ) : <span className="text-slate-500">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 max-w-xs">
-                    {tx.catatan ? (
-                      <p className="text-xs leading-relaxed line-clamp-2" title={tx.catatan}>{tx.catatan}</p>
-                    ) : <span className="text-slate-500">—</span>}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {isAdmin && (
-                      <button onClick={() => handleDelete(tx)} disabled={deletingId === tx.id} className="text-slate-400 hover:text-rose-400 disabled:opacity-50" title="Delete transaction">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {filtered.length === 0 && (
-              <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-500">No transactions found.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {/* Same treatment as the Forex journal: sticky h-scroll wrapper, no cell
+          truncation, 42px rows, 10/page. */}
+      <HScrollTable>
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey={t => t.id}
+          defaultSort={{ key: 'tanggal', dir: 'desc' }}
+          minWidth={1120}
+          noTruncate
+          hScroll={false}
+          pageSize={10}
+          rowHeight={42}
+          empty="No transactions found."
+        />
+      </HScrollTable>
     </div>
   );
 }
