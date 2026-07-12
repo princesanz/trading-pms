@@ -50,6 +50,9 @@ export function DataTable<T>({
   virtualizeOver = tableTokens.virtualizeOver,
   maxHeight = 560,
   density = 'dense',
+  rowHeight,
+  noTruncate = false,
+  hScroll = true,
   onRowClick,
   empty = 'No rows.',
   minWidth,
@@ -64,6 +67,14 @@ export function DataTable<T>({
   /** Scroll height of the virtualized body. */
   maxHeight?: number;
   density?: 'dense' | 'compact';
+  /** Overrides the density row height (px) when set — e.g. a roomier journal. */
+  rowHeight?: number;
+  /** Cells wrap to a single line without an ellipsis, showing values in full
+   *  (default keeps the truncating behaviour for narrow, shared tables). */
+  noTruncate?: boolean;
+  /** When false, the component renders no horizontal scroller of its own —
+   *  the caller wraps it (e.g. in HScrollTable) to own the x-scroll. */
+  hScroll?: boolean;
   onRowClick?: (row: T) => void;
   empty?: string;
   /** Minimum content width in px — tables with many columns set this and the
@@ -75,7 +86,7 @@ export function DataTable<T>({
   const [page, setPage] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const rowH = density === 'dense' ? tableTokens.rowHeight : tableTokens.rowHeightCompact;
+  const rowH = rowHeight ?? (density === 'dense' ? tableTokens.rowHeight : tableTokens.rowHeightCompact);
 
   const sorted = useMemo(() => {
     if (!sort) return rows;
@@ -122,9 +133,9 @@ export function DataTable<T>({
           key={c.key}
           role="cell"
           className={cn(
-            'truncate px-3',
+            noTruncate ? 'whitespace-nowrap px-3' : 'truncate px-3',
             cellText,
-            c.numeric ? 'text-right font-adm-data text-adm-ink-hi' : 'font-adm-ui text-adm-ink-mid',
+            c.numeric ? 'text-right font-adm-data text-adm-ink-hi tabular-nums' : 'font-adm-ui text-adm-ink-mid',
             c.align === 'right' && 'text-right',
             c.align === 'center' && 'text-center'
           )}
@@ -188,7 +199,7 @@ export function DataTable<T>({
   );
 
   return (
-    <div role="table" className={cn('overflow-x-auto rounded-adm border border-adm-line bg-adm-bg1', className)}>
+    <div role="table" className={cn(hScroll && 'overflow-x-auto', 'rounded-adm border border-adm-line bg-adm-bg1', className)}>
       {minWidth != null ? <div style={{ minWidth }}>{body}</div> : body}
     </div>
   );

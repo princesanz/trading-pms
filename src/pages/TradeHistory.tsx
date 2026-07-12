@@ -11,8 +11,12 @@ import { sortClosedDesc } from '../lib/sortTrades';
 import { PageHeader } from '../components/adm/PageHeader';
 import { StatusBadge } from '../components/adm/StatusBadge';
 import { DataTable, type Column } from '../components/adm/DataTable';
-import { fmtSignedUsd, fmtPrice } from '../design/format';
+import { fmtSignedUsd, fmtPrice, fmtNum } from '../design/format';
 import type { Trade } from '../types';
+
+// XAUUSD is always quoted to 2 decimals; other FX pairs keep fmtPrice's 5-digit
+// precision. Display-only — never used in any P&L computation.
+const fmtInstrPrice = (v: number, instr: string) => (instr === 'XAUUSD' ? fmtNum(v, 2) : fmtPrice(v));
 
 const inputCls = 'w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-3 py-2 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none';
 const labelCls = 'mb-1 block font-adm-data text-adm-micro uppercase text-adm-ink-dim';
@@ -115,22 +119,22 @@ export function TradeHistory() {
 
   const columns: Column<Trade>[] = [
     { key: 'id', header: 'ID', width: '84px', sortValue: t => t.trade_number ?? null, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-dim">{formatTradeId(t.trade_number)}</span> },
-    { key: 'tanggal', header: 'Opened', width: '100px', sortValue: t => t.tanggal, cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yy')}</span> },
+    { key: 'tanggal', header: 'Opened', width: '108px', sortValue: t => t.tanggal, cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
     { key: 'instrumen', header: 'Instrument', width: '100px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.instrumen}</span> },
     { key: 'lot', header: 'Lot', numeric: true, width: '60px', cell: t => (t.lot != null ? t.lot.toFixed(2) : '—') },
     { key: 'posisi', header: 'Side', width: '76px', cell: t => <StatusBadge kind={t.posisi === 'Buy' ? 'long' : 'short'} label={t.posisi.toUpperCase()} /> },
-    { key: 'harga_entry', header: 'Entry', numeric: true, width: '86px', cell: t => fmtPrice(t.harga_entry ?? 0) },
+    { key: 'harga_entry', header: 'Entry', numeric: true, width: '96px', cell: t => fmtInstrPrice(t.harga_entry ?? 0, t.instrumen) },
     {
-      key: 'harga_exit', header: 'Exit', numeric: true, width: '86px',
+      key: 'harga_exit', header: 'Exit', numeric: true, width: '96px',
       cell: t => t.harga_exit == null
         ? <span className="text-adm-ink-dim">—</span>
-        : <span className={t.net_pnl != null && t.net_pnl > 0 ? 'text-adm-up' : t.net_pnl != null && t.net_pnl < 0 ? 'text-adm-down' : undefined}>{fmtPrice(t.harga_exit)}</span>,
+        : <span className={t.net_pnl != null && t.net_pnl > 0 ? 'text-adm-up' : t.net_pnl != null && t.net_pnl < 0 ? 'text-adm-down' : undefined}>{fmtInstrPrice(t.harga_exit, t.instrumen)}</span>,
     },
-    { key: 'sl', header: 'SL', numeric: true, width: '80px', cell: t => (t.sl ? <span className="text-adm-down">{fmtPrice(t.sl)}</span> : <span className="text-adm-ink-dim">—</span>) },
-    { key: 'tp', header: 'TP', numeric: true, width: '80px', cell: t => (t.tp ? <span className="text-adm-up">{fmtPrice(t.tp)}</span> : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'sl', header: 'SL', numeric: true, width: '90px', cell: t => (t.sl ? <span className="text-adm-down">{fmtInstrPrice(t.sl, t.instrumen)}</span> : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'tp', header: 'TP', numeric: true, width: '90px', cell: t => (t.tp ? <span className="text-adm-up">{fmtInstrPrice(t.tp, t.instrumen)}</span> : <span className="text-adm-ink-dim">—</span>) },
     { key: 'session', header: 'Session', width: '116px', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{formatSession(t.session)}</span> },
     { key: 'tags', header: 'Setup · Psych', width: 'minmax(120px,1fr)', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{t.setup_tag?.name || '—'} · {t.psychology_tag?.name || '—'}</span> },
-    { key: 'tanggal_tutup', header: 'Closed', width: '100px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yy') : '—'}</span> },
+    { key: 'tanggal_tutup', header: 'Closed', width: '108px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yyyy') : '—'}</span> },
     { key: 'point_value', header: 'Pt val', numeric: true, width: '70px', cell: t => formatNum(t.point_value) },
     { key: 'risk_usd', header: 'Risk $', numeric: true, width: '86px', sortValue: t => t.risk_usd ?? null, cell: t => formatUsd(t.risk_usd) },
     { key: 'risk_pct', header: 'Risk %', numeric: true, width: '76px', cell: t => formatPct(t.risk_pct) },
@@ -212,7 +216,7 @@ export function TradeHistory() {
 
       {/* Pre-sorted by the shared comparator; header clicks re-sort by column.
           Virtualizes automatically past 100 rows, paginates past 50. */}
-      <DataTable columns={columns} rows={filteredTrades} rowKey={t => t.id} minWidth={1700} empty="No closed trades in the journal yet." />
+      <DataTable columns={columns} rows={filteredTrades} rowKey={t => t.id} minWidth={1760} noTruncate empty="No closed trades in the journal yet." />
 
       {/* Edit drawer — same fields + mutation path as the old inline form. */}
       {editingTrade && (
