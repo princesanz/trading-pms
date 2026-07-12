@@ -13,8 +13,13 @@ import { formatTradeId, formatUsd, formatPct, formatRr, formatNum, formatSession
 import { PageHeader } from '../components/adm/PageHeader';
 import { StatusBadge } from '../components/adm/StatusBadge';
 import { DataTable, type Column } from '../components/adm/DataTable';
-import { fmtSignedUsd, fmtPrice } from '../design/format';
+import { HScrollTable } from '../components/HScrollTable';
+import { fmtSignedUsd, fmtPrice, fmtNum } from '../design/format';
 import type { Trade, TradePosition } from '../types';
+
+// XAUUSD is always quoted to 2 decimals; other FX pairs keep fmtPrice's 5-digit
+// precision. Display-only — mirrors the Trade Journal. Never used in P&L math.
+const fmtInstrPrice = (v: number, instr: string) => (instr === 'XAUUSD' ? fmtNum(v, 2) : fmtPrice(v));
 
 /* Per-row live cells — each subscribes to ONE symbol in the price store, so a
  * 5s tick re-renders only the mark/uPnL spans of rows with a live feed. Raw
@@ -23,7 +28,7 @@ function LiveMark({ instrument }: { instrument: string }) {
   const live = isForexLiveSymbol(instrument);
   const price = useForexPrice(live ? instrument.toUpperCase() : '');
   if (!live || price == null) return <span className="text-adm-ink-dim">—</span>;
-  return <span className="text-adm-ink-hi">{fmtPrice(price)}</span>;
+  return <span className="text-adm-ink-hi">{fmtInstrPrice(price, instrument)}</span>;
 }
 
 function LiveUPnl({ trade }: { trade: Trade }) {
@@ -158,21 +163,24 @@ export function OpenPositions() {
 
   const columns: Column<Trade>[] = [
     { key: 'id', header: 'ID', width: '84px', sortValue: t => t.trade_number ?? null, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-dim">{formatTradeId(t.trade_number)}</span> },
-    { key: 'tanggal', header: 'Opened', width: '104px', cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yy')}</span> },
+    { key: 'tanggal', header: 'Opened', width: '108px', cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
     { key: 'instrumen', header: 'Instrument', width: '100px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.instrumen}</span> },
     { key: 'lot', header: 'Lot', numeric: true, width: '64px', cell: t => (t.lot != null ? t.lot.toFixed(2) : '—') },
     { key: 'posisi', header: 'Side', width: '76px', cell: t => <StatusBadge kind={t.posisi === 'Buy' ? 'long' : 'short'} label={t.posisi.toUpperCase()} /> },
-    { key: 'harga_entry', header: 'Entry', numeric: true, width: '90px', cell: t => fmtPrice(t.harga_entry ?? 0) },
-    { key: 'sl', header: 'SL', numeric: true, width: '84px', cell: t => (t.sl ? <span className="text-adm-down">{fmtPrice(t.sl)}</span> : <span className="text-adm-ink-dim">—</span>) },
-    { key: 'tp', header: 'TP', numeric: true, width: '84px', cell: t => (t.tp ? <span className="text-adm-up">{fmtPrice(t.tp)}</span> : <span className="text-adm-ink-dim">—</span>) },
-    { key: 'mark', header: 'Mark', numeric: true, width: '90px', sortValue: () => null, cell: t => <LiveMark instrument={t.instrumen} /> },
-    { key: 'session', header: 'Session', width: '120px', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{formatSession(t.session)}</span> },
-    { key: 'tags', header: 'Setup · Psych', width: 'minmax(120px,1fr)', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{t.setup_tag?.name || '—'} · {t.psychology_tag?.name || '—'}</span> },
+    { key: 'harga_entry', header: 'Entry', numeric: true, width: '96px', cell: t => fmtInstrPrice(t.harga_entry ?? 0, t.instrumen) },
+    { key: 'sl', header: 'SL', numeric: true, width: '96px', cell: t => (t.sl ? <span className="text-adm-down">{fmtInstrPrice(t.sl, t.instrumen)}</span> : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'tp', header: 'TP', numeric: true, width: '96px', cell: t => (t.tp ? <span className="text-adm-up">{fmtInstrPrice(t.tp, t.instrumen)}</span> : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'mark', header: 'Mark', numeric: true, width: '96px', sortValue: () => null, cell: t => <LiveMark instrument={t.instrumen} /> },
+    // Widths sized to longest real values so nowrap never overlaps (same as the
+    // Journal): SESSION fits the bounded enum "London/NY Overlap"; SETUP·PSYCH is
+    // two joined free-text tags, floored at 300px and wraps to 2 lines past that.
+    { key: 'session', header: 'Session', width: '160px', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{formatSession(t.session)}</span> },
+    { key: 'tags', header: 'Setup · Psych', width: 'minmax(300px,1fr)', wrap: true, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{t.setup_tag?.name || '—'} · {t.psychology_tag?.name || '—'}</span> },
     { key: 'point_value', header: 'Pt val', numeric: true, width: '70px', cell: t => formatNum(t.point_value) },
     { key: 'risk_usd', header: 'Risk $', numeric: true, width: '90px', sortValue: t => t.risk_usd ?? null, cell: t => formatUsd(t.risk_usd) },
     { key: 'risk_pct', header: 'Risk %', numeric: true, width: '80px', cell: t => formatPct(t.risk_pct) },
     { key: 'rr_planned', header: 'R:R', numeric: true, width: '70px', cell: t => formatRr(t.rr_planned) },
-    { key: 'upnl', header: 'Unrlzd P&L', numeric: true, width: '110px', sortValue: () => null, cell: t => <LiveUPnl trade={t} /> },
+    { key: 'upnl', header: 'Unrlzd P&L', numeric: true, width: '120px', sortValue: () => null, cell: t => <LiveUPnl trade={t} /> },
     {
       key: 'actions', header: '', width: '150px', align: 'right',
       cell: t => isAdmin ? (
@@ -220,7 +228,18 @@ export function OpenPositions() {
         </p>
       )}
 
-      <DataTable columns={columns} rows={filteredTrades} rowKey={t => t.id} minWidth={1560} empty="No open positions." />
+      <HScrollTable>
+        <DataTable
+          columns={columns}
+          rows={filteredTrades}
+          rowKey={t => t.id}
+          minWidth={1860}
+          noTruncate
+          hScroll={false}
+          rowHeight={42}
+          empty="No open positions."
+        />
+      </HScrollTable>
 
       {/* Close drawer — same fields + mutation path as the old inline form. */}
       {closingTrade && (
