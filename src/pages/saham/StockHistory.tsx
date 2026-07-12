@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthProvider';
 import { getCurrencyForDesk } from '../../types';
 import { PageHeader } from '../../components/adm/PageHeader';
 import { DataTable, type Column } from '../../components/adm/DataTable';
+import { HScrollTable } from '../../components/HScrollTable';
 import { fmtIdr } from '../../design/format';
 
 type Tx = ReturnType<typeof useEquitiesData>['transactions'][number];
@@ -79,15 +80,21 @@ export function StockHistory() {
   }, [transactions, filterEmiten, filterTipe]);
 
   const columns: Column<Tx>[] = [
-    { key: 'tanggal', header: 'Date', width: '104px', sortValue: t => Date.parse(t.tanggal), cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yy')}</span> },
+    // Date aligned to the full "DD MMM YYYY" / 124px treatment shared with the other desks.
+    { key: 'tanggal', header: 'Date', width: '124px', sortValue: t => Date.parse(t.tanggal), cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
     { key: 'emiten', header: 'Emiten', width: 'minmax(72px,1fr)', cell: t => <span className="text-adm-ink-hi">{t.emiten}</span> },
     { key: 'tipe', header: 'Type', width: '70px', cell: t => <span className={t.tipe === 'Buy' ? 'text-adm-up' : 'text-adm-down'}>{t.tipe}</span> },
-    { key: 'lot', header: 'Lot', numeric: true, width: '64px', sortValue: t => t.lot, cell: t => String(t.lot) },
-    { key: 'harga', header: 'Price', numeric: true, width: '110px', sortValue: t => t.harga, cell: t => fmtIdr(t.harga) },
-    { key: 'value', header: 'Value', numeric: true, width: '130px', sortValue: t => t.lot * 100 * t.harga, cell: t => fmtIdr(t.lot * 100 * t.harga) },
-    { key: 'komisi', header: 'Comm', numeric: true, width: '96px', sortValue: t => t.komisi || 0, cell: t => t.komisi > 0 ? fmtIdr(t.komisi) : <span className="text-adm-ink-dim">—</span> },
+    // Widths from live IBM Plex Mono measurement of realistic IDR upper bounds:
+    // lot up to 7 digits (79px); share price up to "Rp10,000,000" (118px); per-row
+    // value up to "Rp100,000,000,000" (157px); commission up to "Rp10,000,000" (118px).
+    { key: 'lot', header: 'Lot', numeric: true, width: '80px', sortValue: t => t.lot, cell: t => String(t.lot) },
+    { key: 'harga', header: 'Price', numeric: true, width: '120px', sortValue: t => t.harga, cell: t => fmtIdr(t.harga) },
+    { key: 'value', header: 'Value', numeric: true, width: '160px', sortValue: t => t.lot * 100 * t.harga, cell: t => fmtIdr(t.lot * 100 * t.harga) },
+    { key: 'komisi', header: 'Comm', numeric: true, width: '120px', sortValue: t => t.komisi || 0, cell: t => t.komisi > 0 ? fmtIdr(t.komisi) : <span className="text-adm-ink-dim">—</span> },
     { key: 'tag', header: 'Tag', width: 'minmax(90px,1fr)', sortValue: t => t.analysis_tag_obj?.name ?? '', cell: t => t.analysis_tag_obj ? <span className="text-adm-desk-saham">{t.analysis_tag_obj.name}</span> : <span className="text-adm-ink-dim">—</span> },
-    { key: 'catatan', header: 'Notes', width: 'minmax(120px,1.4fr)', cell: t => t.catatan ? <span className="truncate font-adm-ui text-adm-xs text-adm-ink-mid" title={t.catatan}>{t.catatan}</span> : <span className="text-adm-ink-dim">—</span> },
+    // Free-text notes: under noTruncate the old inner `truncate`+title would never
+    // clip, so wrap to 2 lines (the Setup·Psych treatment) with a 160px floor.
+    { key: 'catatan', header: 'Notes', width: 'minmax(160px,1.4fr)', wrap: true, cell: t => t.catatan ? <span className="font-adm-ui text-adm-xs text-adm-ink-mid">{t.catatan}</span> : <span className="text-adm-ink-dim">—</span> },
     ...(isAdmin ? [{
       key: 'actions', header: '', width: '48px', align: 'right' as const,
       cell: (t: Tx) => (
@@ -127,14 +134,22 @@ export function StockHistory() {
         }
       />
 
-      <DataTable
-        columns={columns}
-        rows={filtered}
-        rowKey={t => t.id}
-        defaultSort={{ key: 'tanggal', dir: 'desc' }}
-        minWidth={980}
-        empty="No transactions found."
-      />
+      {/* Same treatment as the Forex journal: sticky h-scroll wrapper, no cell
+          truncation, 42px rows, 10/page. */}
+      <HScrollTable>
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey={t => t.id}
+          defaultSort={{ key: 'tanggal', dir: 'desc' }}
+          minWidth={1120}
+          noTruncate
+          hScroll={false}
+          pageSize={10}
+          rowHeight={42}
+          empty="No transactions found."
+        />
+      </HScrollTable>
     </div>
   );
 }

@@ -48,6 +48,25 @@ export function fmtPrice(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: n < 100 ? 5 : 2 });
 }
 
+/**
+ * Crypto mark / entry / exit / fill price — adaptive precision by magnitude.
+ * fmtPrice caps at 5 dp, which silently collapses sub-cent coins: PEPE at
+ * $0.00000812 renders "0.00001" (one sig-fig, wrong). This scales the decimal
+ * count to the price band so both BTC (~$117k → 2 dp) and micro-caps
+ * (~$0.0000081 → 8 dp) keep their significant digits. Display-only — never
+ * used in any P&L computation.
+ */
+export function fmtCryptoPrice(n: number): string {
+  const a = Math.abs(n);
+  const digits =
+    a === 0 ? 2 :
+    a >= 1000 ? 2 :   // BTC, ETH-tier
+    a >= 1 ? 4 :      // SOL, BNB-tier
+    a >= 0.01 ? 6 :   // DOGE, ADA-tier
+    8;                // SHIB, PEPE, BONK-tier
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: digits });
+}
+
 export function fmtNum(n: number, digits = 2): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }

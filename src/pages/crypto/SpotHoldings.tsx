@@ -14,7 +14,7 @@ import { useAuth } from '../../contexts/AuthProvider';
 import { PageHeader } from '../../components/adm/PageHeader';
 import { StatusBadge } from '../../components/adm/StatusBadge';
 import { DataTable, type Column } from '../../components/adm/DataTable';
-import { fmtUsd, fmtSignedUsd, fmtPrice, fmtNum } from '../../design/format';
+import { fmtUsd, fmtSignedUsd, fmtCryptoPrice, fmtNum } from '../../design/format';
 import type { CryptoSpotSale } from '../../types';
 
 const inputCls = 'w-full rounded-adm-sm border border-adm-line bg-adm-bg0 px-2 py-1.5 font-adm-data text-adm-sm text-adm-ink-hi placeholder:text-adm-ink-dim focus:border-adm-line2 focus:outline-none';
@@ -359,8 +359,8 @@ export function SpotHoldings() {
     { key: 'tanggal', header: 'Date', width: '104px', cell: s => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(s.tanggal), 'dd MMM yy')}</span> },
     { key: 'coin', header: 'Coin', width: '80px', cell: s => <span className="font-adm-data text-adm-ink-hi">{s.coin}</span> },
     { key: 'jumlah_koin_sold', header: 'Qty sold', numeric: true, width: '100px', cell: s => fmtNum(s.jumlah_koin_sold, 6) },
-    { key: 'harga_jual', header: 'Sell price', numeric: true, width: '110px', cell: s => fmtUsd(s.harga_jual) },
-    { key: 'harga_beli_rata_at_sell', header: 'Avg cost', numeric: true, width: '110px', cell: s => <span className="text-adm-ink-mid">{fmtUsd(s.harga_beli_rata_at_sell)}</span> },
+    { key: 'harga_jual', header: 'Sell price', numeric: true, width: '110px', cell: s => fmtCryptoPrice(s.harga_jual) },
+    { key: 'harga_beli_rata_at_sell', header: 'Avg cost', numeric: true, width: '110px', cell: s => <span className="text-adm-ink-mid">{fmtCryptoPrice(s.harga_beli_rata_at_sell)}</span> },
     { key: 'proceeds', header: 'Proceeds', numeric: true, width: '110px', sortValue: s => s.jumlah_koin_sold * s.harga_jual, cell: s => fmtUsd(s.jumlah_koin_sold * s.harga_jual) },
     { key: 'realized_pnl', header: 'Realized P&L', numeric: true, width: '120px', sortValue: s => s.realized_pnl, cell: s => <span className={s.realized_pnl < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(s.realized_pnl)}</span> },
     { key: 'catatan', header: 'Notes', width: 'minmax(120px,1fr)', cell: s => <span className="font-adm-data text-adm-micro text-adm-ink-dim">{s.catatan || '—'}</span> },
@@ -465,10 +465,10 @@ export function SpotHoldings() {
                   <tr className="border-b border-adm-line hover:bg-adm-bg2">
                     <td className="px-3 py-2 text-adm-ink-hi">{h.coin}</td>
                     <td className="px-3 py-2 text-right text-adm-ink-mid">{fmtNum(h.jumlah_koin, 6)}</td>
-                    <td className="px-3 py-2 text-right text-adm-ink-mid">{fmtUsd(h.harga_beli_rata)}</td>
+                    <td className="px-3 py-2 text-right text-adm-ink-mid">{fmtCryptoPrice(h.harga_beli_rata)}</td>
                     <td className="px-3 py-2 text-right text-adm-ink-mid">{fmtUsd(costBasis)}</td>
                     <td className="px-3 py-2 font-adm-ui text-adm-xs text-adm-ink-dim">{h.exchange_wallet}</td>
-                    <td className="px-3 py-2 text-right text-adm-ink-hi">{hasPrice ? fmtPrice(price) : <span className="text-adm-ink-dim">—</span>}</td>
+                    <td className="px-3 py-2 text-right text-adm-ink-hi">{hasPrice ? fmtCryptoPrice(price) : <span className="text-adm-ink-dim">—</span>}</td>
                     <td className="px-3 py-2 text-right text-adm-ink-hi">{hasPrice ? fmtUsd(spotMarkToMarket(h, price)) : <span className="text-adm-ink-dim">—</span>}</td>
                     <td className="px-3 py-2 text-right">{floatingPnl !== null ? <span className={floatingPnl < 0 ? 'text-adm-down' : 'text-adm-up'}>{fmtSignedUsd(floatingPnl)}</span> : <span className="text-adm-ink-dim">—</span>}</td>
                     <td className="px-3 py-2 text-right">

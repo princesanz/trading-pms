@@ -11,7 +11,8 @@ import { normalizeCashFlowTipe } from '../../lib/balanceCalc';
 import { PageHeader } from '../../components/adm/PageHeader';
 import { StatusBadge } from '../../components/adm/StatusBadge';
 import { DataTable, type Column } from '../../components/adm/DataTable';
-import { fmtUsd, fmtSignedUsd, fmtPrice } from '../../design/format';
+import { HScrollTable } from '../../components/HScrollTable';
+import { fmtUsd, fmtSignedUsd, fmtCryptoPrice } from '../../design/format';
 import type { CryptoFuturesTrade } from '../../types';
 
 async function recalculateCryptoBalances(overridePnl?: { tradeId: string; pnlValue: number }) {
@@ -99,7 +100,7 @@ function LiveMark({ trade }: { trade: CryptoFuturesTrade }) {
   const prices = useCryptoPriceMap();
   if (trade.status !== 'Open') return <span className="text-adm-ink-dim">—</span>;
   const p = resolvePrice(prices, trade.coin);
-  return p != null ? <span className="text-adm-ink-hi">{fmtPrice(p)}</span> : <span className="text-adm-ink-dim">—</span>;
+  return p != null ? <span className="text-adm-ink-hi">{fmtCryptoPrice(p)}</span> : <span className="text-adm-ink-dim">—</span>;
 }
 function LiveUPnl({ trade }: { trade: CryptoFuturesTrade }) {
   const prices = useCryptoPriceMap();
@@ -182,22 +183,28 @@ export function FuturesJournal() {
   const isEdit = closingTrade?.status === 'Closed';
 
   const columns: Column<CryptoFuturesTrade>[] = [
-    { key: 'tanggal', header: 'Date', width: '100px', sortValue: t => t.tanggal, cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yy')}</span> },
-    { key: 'coin', header: 'Coin', width: '90px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.coin}</span> },
+    // Dates aligned to the full "DD MMM YYYY" / 124px treatment used on the Forex
+    // journal so no desk shows a truncated or ambiguous 2-digit year.
+    { key: 'tanggal', header: 'Date', width: '124px', sortValue: t => t.tanggal, cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
+    // 112px: longest Binance base symbol ("1000000BONK") measures 103px incl. padding.
+    { key: 'coin', header: 'Coin', width: '112px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.coin}</span> },
     { key: 'posisi', header: 'Side', width: '76px', cell: t => <StatusBadge kind={t.posisi === 'Long' ? 'long' : 'short'} label={t.posisi.toUpperCase()} /> },
-    { key: 'notional_usd', header: 'Notional', numeric: true, width: '104px', sortValue: t => t.notional_usd, cell: t => fmtUsd(t.notional_usd) },
+    // 136px fits a 7–8-figure notional; live-measured "$10,000,000.00" = 134px.
+    { key: 'notional_usd', header: 'Notional', numeric: true, width: '136px', sortValue: t => t.notional_usd, cell: t => fmtUsd(t.notional_usd) },
     { key: 'leverage', header: 'Lev', numeric: true, width: '60px', cell: t => `${t.leverage}x` },
-    { key: 'harga_entry', header: 'Entry', numeric: true, width: '96px', cell: t => fmtPrice(t.harga_entry) },
-    { key: 'harga_exit', header: 'Exit', numeric: true, width: '96px', cell: t => (t.harga_exit != null ? fmtPrice(t.harga_exit) : <span className="text-adm-ink-dim">—</span>) },
-    { key: 'mark', header: 'Mark', numeric: true, width: '96px', sortValue: () => null, cell: t => <LiveMark trade={t} /> },
+    // Adaptive crypto precision: BTC 2 dp, sub-cent coins up to 8 dp; live worst 102px.
+    { key: 'harga_entry', header: 'Entry', numeric: true, width: '104px', cell: t => fmtCryptoPrice(t.harga_entry) },
+    { key: 'harga_exit', header: 'Exit', numeric: true, width: '104px', cell: t => (t.harga_exit != null ? fmtCryptoPrice(t.harga_exit) : <span className="text-adm-ink-dim">—</span>) },
+    { key: 'mark', header: 'Mark', numeric: true, width: '104px', sortValue: () => null, cell: t => <LiveMark trade={t} /> },
     { key: 'status', header: 'Status', width: '84px', cell: t => <StatusBadge kind={t.status === 'Open' ? 'open' : 'closed'} /> },
-    { key: 'tanggal_tutup', header: 'Closed', width: '100px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yy') : '—'}</span> },
-    { key: 'upnl', header: 'Unrlzd P&L', numeric: true, width: '110px', sortValue: () => null, cell: t => <LiveUPnl trade={t} /> },
+    { key: 'tanggal_tutup', header: 'Closed', width: '124px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yyyy') : '—'}</span> },
+    // 136px: live-measured "−$1,234,567.89" = 134px; header "UNRLZD P&L" 94px.
+    { key: 'upnl', header: 'Unrlzd P&L', numeric: true, width: '136px', sortValue: () => null, cell: t => <LiveUPnl trade={t} /> },
     {
-      key: 'net_pnl', header: 'Net P&L', numeric: true, width: '104px', sortValue: t => t.net_pnl ?? null,
+      key: 'net_pnl', header: 'Net P&L', numeric: true, width: '120px', sortValue: t => t.net_pnl ?? null,
       cell: t => t.net_pnl == null ? <span className="text-adm-ink-dim">—</span> : <span className={t.net_pnl > 0 ? 'text-adm-up' : t.net_pnl < 0 ? 'text-adm-down' : 'text-adm-ink-mid'}>{fmtSignedUsd(t.net_pnl)}</span>,
     },
-    { key: 'persen_profit_loss', header: 'Gain %', numeric: true, width: '80px', sortValue: t => t.persen_profit_loss ?? null, cell: t => (t.persen_profit_loss != null ? `${t.persen_profit_loss.toFixed(2)}%` : '—') },
+    { key: 'persen_profit_loss', header: 'Gain %', numeric: true, width: '96px', sortValue: t => t.persen_profit_loss ?? null, cell: t => (t.persen_profit_loss != null ? `${t.persen_profit_loss.toFixed(2)}%` : '—') },
     {
       key: 'actions', header: '', width: '120px', align: 'right',
       cell: t => isAdmin ? (
@@ -250,7 +257,23 @@ export function FuturesJournal() {
         </p>
       )}
 
-      <DataTable columns={columns} rows={filtered} rowKey={t => t.id} minWidth={1420} empty="No futures trades found." />
+      {/* Same treatment as the Forex journal: sticky h-scroll wrapper, no cell
+          truncation, 42px rows, 10/page. minWidth is the sum of the re-measured
+          column tracks (1460px). */}
+      <HScrollTable>
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          rowKey={t => t.id}
+          minWidth={1500}
+          noTruncate
+          hScroll={false}
+          pageSize={10}
+          virtualizeOver={Infinity}
+          rowHeight={42}
+          empty="No futures trades found."
+        />
+      </HScrollTable>
 
       {/* Close / edit drawer — same fields + mutation path as the old inline form. */}
       {closingTrade && (
