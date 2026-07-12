@@ -163,7 +163,8 @@ export function OpenPositions() {
 
   const columns: Column<Trade>[] = [
     { key: 'id', header: 'ID', width: '84px', sortValue: t => t.trade_number ?? null, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-dim">{formatTradeId(t.trade_number)}</span> },
-    { key: 'tanggal', header: 'Opened', width: '108px', cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
+    // 124px so the mono date isn't flush against Instrument — see TradeHistory.
+    { key: 'tanggal', header: 'Opened', width: '124px', cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
     { key: 'instrumen', header: 'Instrument', width: '100px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.instrumen}</span> },
     { key: 'lot', header: 'Lot', numeric: true, width: '64px', cell: t => (t.lot != null ? t.lot.toFixed(2) : '—') },
     { key: 'posisi', header: 'Side', width: '76px', cell: t => <StatusBadge kind={t.posisi === 'Buy' ? 'long' : 'short'} label={t.posisi.toUpperCase()} /> },
@@ -233,7 +234,7 @@ export function OpenPositions() {
           columns={columns}
           rows={filteredTrades}
           rowKey={t => t.id}
-          minWidth={1860}
+          minWidth={1876}
           noTruncate
           hScroll={false}
           rowHeight={42}

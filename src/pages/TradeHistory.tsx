@@ -120,7 +120,10 @@ export function TradeHistory() {
 
   const columns: Column<Trade>[] = [
     { key: 'id', header: 'ID', width: '84px', sortValue: t => t.trade_number ?? null, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-dim">{formatTradeId(t.trade_number)}</span> },
-    { key: 'tanggal', header: 'Opened', width: '108px', sortValue: t => t.tanggal, cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
+    // 124px: the mono "DD MMM YYYY" date is ~86px; at the old 108px it filled the
+    // content box and ate the right padding, leaving the date flush against the
+    // Instrument cell. 124px restores a full ≥24px inter-cell gap with headroom.
+    { key: 'tanggal', header: 'Opened', width: '124px', sortValue: t => t.tanggal, cell: t => <span className="font-adm-data text-adm-ink-mid">{format(parseISO(t.tanggal), 'dd MMM yyyy')}</span> },
     { key: 'instrumen', header: 'Instrument', width: '100px', cell: t => <span className="font-adm-data text-adm-ink-hi">{t.instrumen}</span> },
     { key: 'lot', header: 'Lot', numeric: true, width: '60px', cell: t => (t.lot != null ? t.lot.toFixed(2) : '—') },
     { key: 'posisi', header: 'Side', width: '76px', cell: t => <StatusBadge kind={t.posisi === 'Buy' ? 'long' : 'short'} label={t.posisi.toUpperCase()} /> },
@@ -139,7 +142,7 @@ export function TradeHistory() {
     // (fits e.g. "Liquidity Grab · FOMO / Revenge Trade") and grows via 1fr.
     { key: 'session', header: 'Session', width: '160px', cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{formatSession(t.session)}</span> },
     { key: 'tags', header: 'Setup · Psych', width: 'minmax(300px,1fr)', wrap: true, cell: t => <span className="font-adm-data text-adm-micro text-adm-ink-mid">{t.setup_tag?.name || '—'} · {t.psychology_tag?.name || '—'}</span> },
-    { key: 'tanggal_tutup', header: 'Closed', width: '108px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yyyy') : '—'}</span> },
+    { key: 'tanggal_tutup', header: 'Closed', width: '124px', sortValue: t => t.tanggal_tutup ?? null, cell: t => <span className="font-adm-data text-adm-ink-mid">{t.tanggal_tutup ? format(parseISO(t.tanggal_tutup), 'dd MMM yyyy') : '—'}</span> },
     { key: 'point_value', header: 'Pt val', numeric: true, width: '70px', cell: t => formatNum(t.point_value) },
     { key: 'risk_usd', header: 'Risk $', numeric: true, width: '86px', sortValue: t => t.risk_usd ?? null, cell: t => formatUsd(t.risk_usd) },
     { key: 'risk_pct', header: 'Risk %', numeric: true, width: '76px', cell: t => formatPct(t.risk_pct) },
@@ -226,7 +229,7 @@ export function TradeHistory() {
           columns={columns}
           rows={filteredTrades}
           rowKey={t => t.id}
-          minWidth={2060}
+          minWidth={2092}
           noTruncate
           hScroll={false}
           pageSize={10}
