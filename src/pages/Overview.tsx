@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { usePortfolioData } from '../hooks/useSupabase';
 import { useCryptoData } from '../hooks/useCryptoData';
 import { useEquitiesData } from '../hooks/useEquitiesData';
@@ -7,6 +7,7 @@ import { useCryptoPrices } from '../contexts/CryptoPriceProvider';
 import { useFxRate } from '../contexts/FxRateProvider';
 import { useAuth } from '../contexts/AuthProvider';
 import { forexDeskSummary, cryptoDeskSummary, sahamDeskSummary } from '../lib/deskAggregates';
+import { deskEquitySeries, combinedEquityCurve } from '../lib/combinedEquity';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { PageHeader } from '../components/adm/PageHeader';
@@ -84,12 +85,36 @@ function AdminOverview() {
     saham.cashFlows, saham.holdings, usdIdrRate,
   ]);
 
+  // Combined equity curve — reconstructed from each desk's closed-trade saldo_akun
+  // history (no new persistence). Forex & Crypto are USD (USDT≈USD) → identity.
+  // Saham exposes no per-trade balance series (equity is cash-flow + holdings
+  // derived, not a running saldo_akun), so it contributes nothing to the historical
+  // curve today; when it does, IDR→USD would divide by usdIdrRate like the table above.
+  const combinedCurve = useMemo(() => {
+    const forexClosed = forex.trades.filter(t => t.status === 'Closed');
+    const cryptoClosed = crypto.futuresTrades.filter(t => t.status === 'Closed');
+    const forexSeries = deskEquitySeries(forexClosed, usd => usd);
+    const cryptoSeries = deskEquitySeries(cryptoClosed, usd => usd);
+    return combinedEquityCurve([forexSeries, cryptoSeries]);
+  }, [forex.trades, crypto.futuresTrades]);
+
+  // "Xm ago" FX-feed staleness label is kept live by its own 30s tick (not the
+  // price feed) so it stays honest even if ticks pause — but only while the
+  // badge is shown (fxStatus === 'live'); otherwise the interval is cleared.
+  // Declared above the loading guard so hook order stays stable (rules-of-hooks).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (fxStatus !== 'live') return;
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [fxStatus]);
+
   if (loading) {
     return <div className="flex h-64 items-center justify-center font-adm-data text-adm-sm text-adm-ink-dim">Loading consolidated portfolio…</div>;
   }
 
   const pnlPct = agg.totalModal !== 0 ? (agg.totalPnl / agg.totalModal) * 100 : 0;
-  const fxMins = fxUpdated != null ? Math.max(0, Math.round((Date.now() - fxUpdated) / 60000)) : null;
+  const fxMins = fxUpdated != null ? Math.max(0, Math.round((now - fxUpdated) / 60000)) : null;
 
   const deskRows: DeskRow[] = [
     { key: 'forex', desk: 'Forex & Commodities', equity: agg.fx.equity, pnl: agg.fx.pnl, basis: 'Native USD' },
@@ -159,17 +184,30 @@ function AdminOverview() {
         <ChartPanel type="alloc" title="Allocation by desk" note="share of AUM (USD)" segments={allocation} valueFormat={fmtUsd} />
       </div>
 
-      {/* Combined equity curve — deferred: needs a cross-desk USD equity-over-time
-          series, which no desk currently persists. Honest placeholder, not a fake chart. */}
-      <section className="rounded-adm border border-adm-line bg-adm-bg1 p-4">
-        <h3 className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">Combined equity curve</h3>
-        <div className="flex h-40 flex-col items-center justify-center gap-1 text-center">
-          <p className="font-adm-data text-adm-sm text-adm-ink-mid">Not yet available</p>
-          <p className="max-w-md font-adm-data text-adm-micro text-adm-ink-dim">
-            A unified USD equity-over-time series across all desks will land once cross-desk snapshots are persisted.
-          </p>
-        </div>
-      </section>
+      {/* Combined equity curve — reconstructed from closed-trade saldo_akun history,
+          forward-filled and summed across desks (Saham absent until it has trades). */}
+      {combinedCurve.x.length > 0 ? (
+        <ChartPanel
+          type="area"
+          title="Combined equity curve"
+          note="closed-trade balance · all desks · USD"
+          xKind="time"
+          x={combinedCurve.x}
+          series={[{ label: 'COMBINED EQUITY', data: combinedCurve.y, tone: 'neutral' }]}
+          valueFormat={fmtUsd}
+          height={240}
+        />
+      ) : (
+        <section className="rounded-adm border border-adm-line bg-adm-bg1 p-4">
+          <h3 className="font-adm-data text-adm-micro uppercase text-adm-ink-dim">Combined equity curve</h3>
+          <div className="flex h-40 flex-col items-center justify-center gap-1 text-center">
+            <p className="font-adm-data text-adm-sm text-adm-ink-mid">No closed trades yet</p>
+            <p className="max-w-md font-adm-data text-adm-micro text-adm-ink-dim">
+              The unified USD equity-over-time series appears once any desk has a closed trade with a recorded balance.
+            </p>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
