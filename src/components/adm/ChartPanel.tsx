@@ -146,7 +146,19 @@ function XYChart({ type, x, series, xKind = 'time', xLabels, height = 240, title
           y: false,
           points: { size: 6, width: 1, stroke: color.ink.hi, fill: color.bg1 },
         },
-        scales: { x: { time: xKind === 'time' } },
+        scales: {
+          x: {
+            time: xKind === 'time',
+            // Category bars: uPlot pins the x-scale to the exact data extent
+            // (no padding like the y-scale gets), so the outermost bars sit
+            // centered on the plot edges and their outer half — including the
+            // top-corner stroke — is clipped by the plot rect (MON/FRI here).
+            // Pad by half a category on each side so edge bars render fully.
+            ...(xKind === 'category'
+              ? { range: (_u: UPlot, min: number, max: number) => [min - 0.5, max + 0.5] as [number, number] }
+              : {}),
+          },
+        },
         axes: [
           {
             stroke: color.ink.dim,
