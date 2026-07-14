@@ -15,6 +15,7 @@ import { StatusBadge } from '../components/adm/StatusBadge';
 import { MetricStrip } from '../components/adm/MetricStrip';
 import { DataTable, type Column } from '../components/adm/DataTable';
 import { ChartPanel } from '../components/adm/ChartPanel';
+import { MarketSessionsPanel } from '../components/adm/MarketSessionsPanel';
 import { color } from '../design/tokens';
 import { fmtUsd, fmtSignedUsd, fmtSignedPct, fmtIdr } from '../design/format';
 
@@ -183,6 +184,12 @@ function AdminOverview() {
         </div>
         <ChartPanel type="alloc" title="Allocation by desk" note="share of AUM (USD)" segments={allocation} valueFormat={fmtUsd} />
       </div>
+
+      {/* Market sessions — full-width schedule strip, placed below the per-desk
+          breakdown and above the combined equity curve (fits the single-column
+          stack of full-width sections). Self-contained: its own tz-correct
+          session math + ticking clock, no dependency on the desk data above. */}
+      <MarketSessionsPanel />
 
       {/* Combined equity curve — reconstructed from closed-trade saldo_akun history,
           forward-filled and summed across desks (Saham absent until it has trades). */}
