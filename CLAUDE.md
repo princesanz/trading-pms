@@ -7,21 +7,12 @@ Vault path: `C:\Users\SANZ\OneDrive\Dokumen\sanz-brain`
 ## Session startup (mandatory)
 
 1. Always read `memory/INDEX.md` from sanz-brain first — every session, no exceptions
-2. Check `inbox/claude-inbox.md` for pending tasks from other agents
-3. AUTO-RUN the daily brief:
-   - Run: `cd "C:\Users\SANZ\OneDrive\Dokumen\sanz-brain" && bash scripts/daily-brief.sh`
-   - Read `generated/LATEST.md` and report it to Sanz (prices + flags, project
-     pulse, actionable inbox, vault state). Runs the market snapshot internally.
-   - Only skip if Sanz explicitly says "no brief" / "skip market"
-4. Only open full vault files (MEMORY.md, USER.md) if task requires deep context; read this project's code context as needed
-
-## Market analysis protocol
-
-After snapshot is loaded:
-- Flag any XAUUSD move >0.5% from previous session
-- Note BTC dominance direction if crypto prices available
-- Check USD/IDR for IDX session relevance (threshold: >100 pip move)
-- Append snapshot summary to `inbox/claude-inbox.md` with tag [MARKET]
+2. Skim `inbox/claude-inbox.md` for open handoffs
+3. Read `[[Trading PMS Project]]` hub for current status / open items
+4. Daily brief / market snapshot: **on request only** (run `bash scripts/daily-brief.sh`
+   → `generated/LATEST.md`, or `fetch-market-snapshot.sh` for just prices). Run it
+   when the session is about trading/analysis or Sanz asks — not automatically.
+5. Only open full vault files (MEMORY.md, USER.md) if the task needs deep context
 
 ## Session end (mandatory)
 
