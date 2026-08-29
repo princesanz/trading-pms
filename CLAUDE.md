@@ -8,11 +8,11 @@ Vault path: `C:\Users\SANZ\OneDrive\Dokumen\sanz-brain`
 
 1. Always read `memory/INDEX.md` from sanz-brain first — every session, no exceptions
 2. Check `inbox/claude-inbox.md` for pending tasks from other agents
-3. AUTO-RUN market snapshot:
-   - Run: `cd "C:\Users\SANZ\OneDrive\Dokumen\sanz-brain" && bash projects/sanz-capital/research/fetch-market-snapshot.sh`
-   - Read the generated snapshot from `projects/sanz-capital/analysis/`
-   - Report current prices to Sanz at session start
-   - Only skip if Sanz explicitly says "no snapshot" or "skip market"
+3. AUTO-RUN the daily brief:
+   - Run: `cd "C:\Users\SANZ\OneDrive\Dokumen\sanz-brain" && bash scripts/daily-brief.sh`
+   - Read `generated/LATEST.md` and report it to Sanz (prices + flags, project
+     pulse, actionable inbox, vault state). Runs the market snapshot internally.
+   - Only skip if Sanz explicitly says "no brief" / "skip market"
 4. Only open full vault files (MEMORY.md, USER.md) if task requires deep context; read this project's code context as needed
 
 ## Market analysis protocol
