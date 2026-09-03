@@ -24,6 +24,35 @@ const fmtPrice = (n: number) => n.toLocaleString(undefined, { maximumFractionDig
 const WIB_TZ = 'Asia/Jakarta';
 const wibDayKey = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-CA', { timeZone: WIB_TZ });
 
+/**
+ * Shown instead of the landing page when the portfolio figures cannot be read.
+ * Deliberately states that the numbers are withheld — a visitor who sees this
+ * should never mistake it for a flat or empty book.
+ */
+function GoldDataUnavailable({ detail, onRetry }: { detail: string; onRetry: () => void }) {
+  return (
+    <div className="min-h-dvh bg-ink font-grotesk text-bone antialiased flex items-center justify-center px-6">
+      <div className="max-w-lg text-center">
+        <p className="font-data text-xs uppercase tracking-[0.25em] text-gold-deep">Data unavailable</p>
+        <h1 className="mt-5 font-display text-2xl sm:text-3xl">Live portfolio figures can’t be loaded right now.</h1>
+        <p className="mt-4 text-sm leading-relaxed text-bone-dim">
+          This is a temporary problem reaching our data backend — not a change in the
+          portfolio. Performance figures are withheld rather than displayed as zero,
+          because a zero you can’t verify is worse than no number at all.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-8 inline-flex items-center gap-2 border border-gold-deep/60 px-6 py-3 font-data text-sm text-gold transition-colors hover:bg-gold/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+        >
+          Retry
+        </button>
+        <p className="mt-8 font-data text-[11px] leading-relaxed text-bone-dim/60">{detail}</p>
+      </div>
+    </div>
+  );
+}
+
 export function GoldLanding() {
   const pub = usePublicData();
   const { usdIdrRate } = useFxRate();
@@ -122,6 +151,21 @@ export function GoldLanding() {
 
   if (pub.loading) {
     return <div className="min-h-dvh bg-ink text-bone-dim flex items-center justify-center font-data text-sm">Loading live portfolio…</div>;
+  }
+
+  /*
+   * Every headline figure (AUM, return, allocation) is derived from
+   * `pub.aggregates`. When that read fails it stays [], and the `?? 0` defaults
+   * above turn a dead backend into a confident "$0 / +0.0% / 0% / 0" — a page
+   * promising real-time transparency stating, in effect, that the book is empty
+   * and never won. Refuse to render numbers we could not verify.
+   *
+   * Gated on aggregates being empty rather than on `pub.error` alone, so a
+   * single failing secondary view (e.g. public_stock_transactions) still
+   * degrades gracefully into a partial page instead of blanking the site.
+   */
+  if (pub.error && pub.aggregates.length === 0) {
+    return <GoldDataUnavailable detail={pub.error} onRetry={pub.refetch} />;
   }
 
   return (
