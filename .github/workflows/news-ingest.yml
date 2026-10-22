@@ -1,0 +1,118 @@
+name: News Feed Ingestion
+
+on:
+  schedule:
+    # UTC; also :17 and :47 each hour in WIB. Avoid the busy top of the hour.
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Feed to synchronize
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - forexfactory
+          - marketwatch
+          - cnbc
+          - yahoo:AAPL
+          - yahoo:MSFT
+          - yahoo:NVDA
+          - yahoo:TSLA
+          - yahoo:META
+      dry_run:
+        description: Validate feeds without writing to Supabase
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+# One shared database: manual and scheduled runs must not interrupt each other.
+concurrency:
+  group: news-feed-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Fetch and synchronize news
+    if: >-
+      github.repository == 'princesanz/trading-pms' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install locked dependencies
+        timeout-minutes: 10
+        run: npm ci --include=dev --no-audit --no-fund
+
+      - name: Run ingestion worker
+        id: worker
+        timeout-minutes: 30
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEWS_SOURCE: ${{ inputs.source || 'all' }}
+          NEWS_DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          if [[ "$NEWS_DRY_RUN" != "true" ]]; then
+            node --input-type=module <<'NODE'
+          const names = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+          const missing = names.filter(name => !process.env[name]?.trim());
+          if (missing.length) {
+            console.error(`Missing repository Actions secrets: ${missing.join(', ')}`);
+            process.exit(1);
+          }
+          let valid = false;
+          try {
+            const url = new URL(process.env.SUPABASE_URL);
+            valid = url.protocol === 'https:' && !url.username && !url.password;
+          } catch {}
+          if (!valid || process.env.SUPABASE_SERVICE_ROLE_KEY.length < 20) {
+            console.error('Invalid server configuration. Check the project URL and server secret in repository Actions secrets.');
+            process.exit(1);
+          }
+          NODE
+          fi
+
+          args=()
+          if [[ "$NEWS_SOURCE" != "all" ]]; then
+            args+=("--source=$NEWS_SOURCE")
+          fi
+          if [[ "$NEWS_DRY_RUN" == "true" ]]; then
+            args+=("--dry-run")
+          fi
+          node node_modules/tsx/dist/cli.mjs scripts/news/worker.ts "${args[@]}"
+
+      - name: Write run summary
+        if: ${{ always() }}
+        env:
+          WORKER_OUTCOME: ${{ steps.worker.outcome }}
+          NEWS_SOURCE: ${{ inputs.source || 'all' }}
+          NEWS_DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+        run: |
+          {
+            printf '## News Feed Ingestion\n\n'
+            printf -- '- Worker outcome: `%s`\n' "$WORKER_OUTCOME"
+            printf -- '- Requested source: `%s`\n' "$NEWS_SOURCE"
+            printf -- '- Dry run: `%s`\n' "$NEWS_DRY_RUN"
+            printf '\nCheck the worker log for each endpoint. A successful run may include endpoints skipped because of an active lease or provider cooldown.\n'
+            printf '\nConfirm `feed_sync_state.last_success` advances for each configured endpoint. Exit success alone does not prove freshness.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
