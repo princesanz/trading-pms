@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseConfigError } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthProvider';
 
 /**
@@ -35,6 +35,16 @@ export function usePublicData() {
   const fetchData = async () => {
     setLoading(true);
     setError(null);
+
+    // A build without credentials can only produce nine identical network
+    // failures. Report the real cause instead and skip the round trips.
+    if (supabaseConfigError) {
+      console.error('[usePublicData]', supabaseConfigError);
+      setError(supabaseConfigError);
+      setLoading(false);
+      return;
+    }
+
     const results = await Promise.all([
       supabase.from('public_desk_aggregates').select('*'),
       supabase.from('public_forex_open_positions').select('*').order('tanggal_buka', { ascending: false }),
