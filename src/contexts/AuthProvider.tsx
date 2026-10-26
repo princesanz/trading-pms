@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { queryClient } from '../lib/queryClient';
 
 /**
  * Auth state for the whole app.
@@ -40,6 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (_event === 'SIGNED_OUT') {
+        void queryClient.cancelQueries({ queryKey: ['news'] });
+        queryClient.removeQueries({ queryKey: ['news'] });
+      }
       setSession(s);
     });
     return () => {

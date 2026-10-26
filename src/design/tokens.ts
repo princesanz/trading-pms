@@ -50,6 +50,12 @@ export const color = {
     error: '#FC817A',
     neutral: '#7A828B',
   },
+  // News desk accents: categorical identity, never directional price signals.
+  news: {
+    calendar: '#E8C266', macro: '#5FC6E4', watchlist: '#B8A0FF',
+    energy: '#F3B574', rates: '#7DB5FF', equities: '#B8A0FF',
+    geopolitics: '#F49BB5', technology: '#5FC6E4',
+  },
 } as const;
 
 export const font = {

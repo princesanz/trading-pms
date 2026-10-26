@@ -48,6 +48,7 @@ import { SahamCashFlow } from './pages/saham/SahamCashFlow';
 // Export pages — lazy-loaded so the heavy xlsx dependency stays out of the initial bundle.
 // (.then maps the named export onto `default`, which React.lazy requires.)
 const ForexExport = lazy(() => import('./pages/ForexExport').then(m => ({ default: m.ForexExport })));
+const NewsTerminal = lazy(() => import('./pages/NewsTerminal').then(m => ({ default: m.NewsTerminal })));
 const CryptoExport = lazy(() => import('./pages/crypto/CryptoExport').then(m => ({ default: m.CryptoExport })));
 const SahamExport = lazy(() => import('./pages/saham/SahamExport').then(m => ({ default: m.SahamExport })));
 
@@ -245,6 +246,7 @@ export default function App() {
           <Route element={<AppLayout />}>
             {/* Unified landing — defaults here on app open */}
             <Route path="/" element={<Navigate to="/overview" replace />} />
+            <Route path="/news" element={<Suspense fallback={<div className="h-[760px] border border-adm-line bg-adm-bg1 p-4 text-adm-ink-dim" role="status">Loading News Terminal…</div>}><NewsTerminal /></Suspense>} />
             <Route element={<OverviewProviders />}>
               <Route path="/overview" element={<Overview />} />
             </Route>

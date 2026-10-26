@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, History, PlusCircle, ArrowRightLeft, Coins, LineChart, Briefcase, BookOpen, Download, Globe, LogIn, LogOut, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, History, PlusCircle, ArrowRightLeft, Coins, LineChart, Briefcase, BookOpen, Download, Globe, LogIn, LogOut, TrendingUp, ChevronLeft, ChevronRight, Newspaper } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthProvider';
 
@@ -103,9 +103,10 @@ export function AppLayout() {
     });
   };
   const overview = isOverview(location.pathname);
+  const news = location.pathname === '/news';
   const desk = getDesk(location.pathname);
   // Public visitors don't see write/full-detail nav items.
-  const navItems = overview ? [] : getNav(desk).filter(item => isAdmin || !item.admin);
+  const navItems = overview || news ? [] : getNav(desk).filter(item => isAdmin || !item.admin);
   const config = deskConfig[desk];
 
   // Public Overview = the full-bleed gold landing (its own nav/footer) — no app shell.
@@ -127,7 +128,7 @@ export function AppLayout() {
           aria-hidden
           className={cn(
             'absolute left-0 top-0 h-0.5 w-full md:h-full md:w-0.5',
-            overview ? 'bg-adm-line2' : config.tick
+            overview || news ? 'bg-adm-line2' : config.tick
           )}
         />
 
@@ -164,11 +165,13 @@ export function AppLayout() {
             <span className={cn(collapsed && 'md:hidden')}>Overview</span>
           </Link>
 
-          {/* Desk navigation — admin only. Public visitors see just the Overview. */}
+          {session && <Link to="/news" title="News Terminal" aria-current={news ? 'page' : undefined} className={cn('flex h-9 shrink-0 items-center gap-2.5 rounded-adm-sm px-2.5 font-adm-data text-adm-micro uppercase md:mx-2 md:mt-1', collapsed && 'md:justify-center md:px-0', news ? 'bg-adm-bg2 text-adm-ink-hi' : 'text-adm-ink-mid hover:bg-adm-bg2 hover:text-adm-ink-hi')}><Newspaper className="h-3.5 w-3.5 shrink-0" /><span className={cn(collapsed && 'md:hidden')}>News Terminal</span></Link>}
+
+          {/* Desk navigation — admin only. */}
           {isAdmin && (<>
             {/* Desk switcher — collapsed = single active-desk cell (glanceable); switching
                 is deferred to expanding the rail. The full FX/CR/EQ strip is expanded-only. */}
-            {collapsed && (
+            {collapsed && !news && (
               <Link
                 to={deskHome[desk]}
                 title={deskName[desk]}
@@ -183,7 +186,7 @@ export function AppLayout() {
             <div className={cn('flex shrink-0 rounded-adm-sm border border-adm-line divide-x divide-adm-line overflow-hidden md:mx-2 md:mt-3', collapsed && 'md:hidden')}>
               {deskOrder.map((d) => {
                 const c = deskConfig[d];
-                const active = !overview && desk === d;
+                const active = !overview && !news && desk === d;
                 const DeskIcon = c.icon;
                 return (
                   <Link
@@ -204,9 +207,9 @@ export function AppLayout() {
 
             {/* Desk label — 2px tick + mono label, same grammar as PageHeader */}
             <div className={cn('hidden md:flex items-center gap-2 px-3 mt-4 mb-1.5', collapsed && 'md:hidden')}>
-              <span aria-hidden className={cn('h-3 w-0.5', overview ? 'bg-adm-desk-overview' : config.tick)} />
-              <p className={cn('font-adm-data text-adm-micro uppercase truncate', overview ? 'text-adm-ink-mid' : config.text)}>
-                {overview ? 'CONSOLIDATED' : config.label}
+              <span aria-hidden className={cn('h-3 w-0.5', overview || news ? 'bg-adm-desk-overview' : config.tick)} />
+              <p className={cn('font-adm-data text-adm-micro uppercase truncate', overview || news ? 'text-adm-ink-mid' : config.text)}>
+                {news ? 'NEWS & MACRO' : overview ? 'CONSOLIDATED' : config.label}
               </p>
             </div>
 
@@ -249,12 +252,12 @@ export function AppLayout() {
                 className={cn('font-adm-data text-adm-micro uppercase truncate', isAdmin ? 'text-adm-ink-mid' : 'text-adm-ink-dim', collapsed && 'md:hidden')}
                 title={session?.user?.email ?? ''}
               >
-                {isAdmin ? (session?.user?.email ?? 'ADMIN') : 'PUBLIC'}
+                {session ? (session.user.email ?? 'AUTHENTICATED') : 'PUBLIC'}
               </span>
             </span>
             <span className={cn('shrink-0', collapsed && 'md:hidden')}><SessionClock /></span>
           </div>
-          {isAdmin ? (
+          {session ? (
             <button
               onClick={() => signOut()}
               title={collapsed ? 'Sign Out' : undefined}
@@ -281,7 +284,7 @@ export function AppLayout() {
       </nav>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-8">
+      <main className="min-w-0 flex-1 overflow-y-auto p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
           <Outlet />
         </div>

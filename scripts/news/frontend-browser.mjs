@@ -1,0 +1,96 @@
+import assert from 'node:assert/strict';
+import { readFile, mkdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// Run against a local Vite server. All upstream requests are intercepted.
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+const origin = process.env.NEWS_TEST_ORIGIN || 'http://127.0.0.1:5178';
+assert.ok(['localhost', '127.0.0.1'].includes(new URL(origin).hostname));
+const env = await readFile('.env', 'utf8');
+const supabaseUrl = env.match(/^VITE_SUPABASE_URL\s*=\s*["']?([^\s"']+)/m)?.[1];
+assert.ok(supabaseUrl, 'Local Supabase URL must be configured');
+const host = new URL(supabaseUrl).hostname;
+const user = { id: 'e270b7c6-6c56-4b1c-807b-0f87d158596a', email: 'terminal-test@example.invalid', aud: 'authenticated', role: 'authenticated', app_metadata: {}, user_metadata: {}, created_at: new Date().toISOString() };
+const expiry = Math.floor(Date.now() / 1000) + 3600;
+const token = `${Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')}.${Buffer.from(JSON.stringify({ sub: user.id, exp: expiry, role: 'authenticated' })).toString('base64url')}.test-signature`;
+const session = { access_token: token, refresh_token: 'isolated-test-token', expires_at: expiry, expires_in: 3600, token_type: 'bearer', user };
+const browser = await chromium.launch({ headless: true, channel: process.env.NEWS_TEST_BROWSER || 'msedge' });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+const errors = [];
+const projections = [];
+let mode = 'success';
+const now = new Date().toISOString();
+await context.addInitScript(({ key, session }) => localStorage.setItem(key, JSON.stringify(session)), { key: `sb-${host.split('.')[0]}-auth-token`, session });
+await context.route('**/*', async route => {
+  const url = new URL(route.request().url());
+  if (url.origin === origin) return route.continue();
+  if (url.hostname !== host) return route.abort();
+  if (url.pathname.includes('/auth/v1/')) return route.fulfill({ json: user });
+  projections.push(url.searchParams.get('select') || '');
+  if (mode === 'failed') return route.fulfill({ status: 500, json: { message: 'Fixture failure' } });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  if (url.pathname.endsWith('/feed_sync_state')) return route.fulfill({ json: ['forexfactory', 'marketwatch', 'cnbc', 'yahoo:AAPL'].map(source => ({ source, status: 'success', last_attempt: now, last_success: now })) });
+  if (url.pathname.endsWith('/economic_events')) return route.fulfill({ json: mode === 'empty' ? [] : [{ id: user.id, title: 'Industrial production', currency: 'USD', impact: 'high', event_time: now, forecast: '0.2%', previous: '-0.1%' }] });
+  if (url.pathname.endsWith('/market_news')) {
+    const filter = url.searchParams.get('tickers') || '';
+    return route.fulfill({ json: filter.includes('XAU') && !filter.includes('AAPL') ? [] : [{ id: user.id, source: 'marketwatch', publisher: 'Test publisher', title: 'Energy and technology market briefing', url: 'https://example.invalid/article', published_at: now, first_seen_at: now, tickers: ['AAPL'], topics: ['energy'] }] });
+  }
+  return route.fulfill({ json: [] });
+});
+const page = await context.newPage();
+page.on('pageerror', error => errors.push(error.message));
+const output = join(tmpdir(), 'trading-pms-news-ui');
+await mkdir(output, { recursive: true });
+try {
+  await page.goto(`${origin}/news`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.getByRole('heading', { name: 'News & Macro Terminal' }).waitFor({ timeout: 120000 });
+  await page.getByText('Industrial production').waitFor();
+  assert.equal(await page.getByRole('cell', { name: '0.2%', exact: true }).count(), 1);
+  const initialHeight = await page.getByRole('tabpanel').evaluate(el => el.getBoundingClientRect().height);
+  await page.getByRole('tab', { name: 'Macro Headlines' }).click();
+  assert.equal(await page.getByRole('tabpanel').evaluate(el => el.getBoundingClientRect().height), initialHeight);
+  await page.getByRole('link', { name: /Energy and technology/ }).waitFor();
+  assert.equal(await page.getByRole('tabpanel').evaluate(el => el.getBoundingClientRect().height), initialHeight);
+  await page.getByRole('button', { name: 'Energy', exact: true }).click();
+  await page.getByRole('link', { name: /Energy and technology/ }).waitFor();
+  await page.screenshot({ path: join(output, 'desktop.png'), fullPage: true });
+  await page.getByRole('tab', { name: 'Watchlist News' }).click();
+  await page.getByRole('button', { name: 'XAU', exact: true }).click();
+  await page.getByText('No matching headlines', { exact: true }).waitFor();
+  await page.getByText('Not configured', { exact: true }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No page-level horizontal overflow');
+  await page.screenshot({ path: join(output, 'mobile.png'), fullPage: true });
+  await page.getByRole('tab', { name: 'Watchlist News' }).focus();
+  await page.keyboard.press('Home');
+  assert.equal(await page.getByRole('tab', { name: 'Economic Calendar' }).getAttribute('aria-selected'), 'true');
+  await page.getByText('Industrial production').waitFor();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Calendar scroll remains inside panel');
+  mode = 'failed';
+  await page.reload();
+  await page.getByText('Calendar unavailable', { exact: true }).waitFor({ timeout: 20000 });
+  mode = 'empty';
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await page.getByText('No scheduled events', { exact: true }).waitFor();
+  assert.deepEqual(errors, []);
+  assert.ok(projections.every(value => !/error_message|lease_token|\*/.test(value)), 'Only safe projections queried');
+  await page.getByRole('button', { name: 'Sign Out', exact: true }).click();
+  await page.getByText('Sign in to open News Terminal', { exact: true }).waitFor();
+  await context.clearCookies();
+  await page.evaluate(() => localStorage.clear());
+  await context.clearPermissions();
+  await page.close();
+  const anonymous = await browser.newContext();
+  const anonPage = await anonymous.newPage();
+  await anonPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  await anonPage.goto(`${origin}/news`);
+  await anonPage.getByText('Sign in to open News Terminal', { exact: true }).waitFor();
+  await anonymous.close();
+  console.log(JSON.stringify({ result: 'PASS', checks: ['calendar', 'tabs', 'filters', 'fixed panel geometry', 'mobile overflow', 'keyboard', 'error and retry', 'empty', 'safe projections', 'sign-out', 'anonymous gate'], screenshots: output }));
+} finally {
+  await context.close();
+  await browser.close();
+}

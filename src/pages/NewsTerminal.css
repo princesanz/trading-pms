@@ -1,0 +1,69 @@
+.news-terminal { --news-accent: var(--news-calendar); }
+.news-terminal[data-tab="macro"] { --news-accent: var(--news-macro); }
+.news-terminal[data-tab="watchlist"] { --news-accent: var(--news-watchlist); }
+.news-terminal .news-eyebrow { color: var(--news-accent); }
+.news-terminal .news-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--news-accent) 35%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--news-accent) 10%, transparent);
+}
+.news-terminal .news-panel { border-top: 2px solid var(--news-accent); }
+.news-terminal [role="tab"] { --tab-accent: var(--news-calendar); }
+.news-terminal #news-tab-macro { --tab-accent: var(--news-macro); }
+.news-terminal #news-tab-watchlist { --tab-accent: var(--news-watchlist); }
+.news-terminal [role="tab"][aria-selected="true"] {
+  color: var(--tab-accent);
+  border-bottom-color: var(--tab-accent);
+  background: color-mix(in srgb, var(--tab-accent) 9%, transparent);
+}
+.news-terminal .news-tab-icon { display: inline-block; margin-right: 7px; vertical-align: -3px; }
+.news-terminal .news-sync { --sync-color: var(--news-neutral); }
+.news-terminal .news-sync[data-state="success"] { --sync-color: var(--news-live); }
+.news-terminal .news-sync[data-state="stale"],
+.news-terminal .news-sync[data-state="partial"] { --sync-color: var(--news-calendar); }
+.news-terminal .news-sync[data-state="failed"] { --sync-color: var(--news-error); }
+.news-terminal .news-sync[data-state="running"] { --sync-color: var(--news-macro); }
+.news-terminal .news-sync-dot { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--sync-color); }
+.news-terminal .news-sync-label { color: var(--sync-color); }
+.news-terminal .news-sync-badge { color: var(--sync-color); border-color: color-mix(in srgb, var(--sync-color) 35%, transparent); }
+.news-terminal .news-filter[aria-pressed="true"] {
+  color: var(--news-accent);
+  border-color: color-mix(in srgb, var(--news-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--news-accent) 11%, transparent);
+}
+.news-terminal .news-filter[data-filter="Energy"] { --news-accent: var(--news-energy); }
+.news-terminal .news-filter[data-filter="Rates"] { --news-accent: var(--news-rates); }
+.news-terminal .news-filter[data-filter="Equities"] { --news-accent: var(--news-equities); }
+.news-terminal .news-filter[data-filter="Geopolitics"] { --news-accent: var(--news-geopolitics); }
+.news-terminal .news-impact { --impact-color: var(--news-neutral); color: var(--impact-color); border-color: color-mix(in srgb, var(--impact-color) 35%, transparent); background: color-mix(in srgb, var(--impact-color) 9%, transparent); }
+.news-terminal .news-impact[data-impact="high"] { --impact-color: var(--news-error); }
+.news-terminal .news-impact[data-impact="medium"] { --impact-color: var(--news-calendar); }
+.news-terminal .news-impact[data-impact="low"] { --impact-color: var(--news-live); }
+.news-terminal .news-impact[data-impact="holiday"] { --impact-color: var(--news-watchlist); }
+.news-terminal .news-currency { color: var(--news-macro); }
+.news-terminal .news-date { color: var(--news-calendar); }
+.news-terminal .news-article { --article-color: var(--news-accent); border-left: 2px solid color-mix(in srgb, var(--article-color) 55%, transparent); }
+.news-terminal .news-article[data-category="energy"] { --article-color: var(--news-energy); }
+.news-terminal .news-article[data-category="bonds"],
+.news-terminal .news-article[data-category="monetary_policy"] { --article-color: var(--news-rates); }
+.news-terminal .news-article[data-category="geopolitics"] { --article-color: var(--news-geopolitics); }
+.news-terminal .news-article[data-category="technology"] { --article-color: var(--news-technology); }
+.news-terminal .news-publisher { color: var(--article-color); }
+.news-terminal .news-ticker { color: var(--news-watchlist); border-color: color-mix(in srgb, var(--news-watchlist) 30%, transparent); background: color-mix(in srgb, var(--news-watchlist) 7%, transparent); }
+.news-terminal .news-ticker[data-ticker="XAU"],
+.news-terminal .news-ticker[data-ticker="BTC"],
+.news-terminal .news-ticker[data-ticker="BTC-USD"] { color: var(--news-calendar); border-color: color-mix(in srgb, var(--news-calendar) 30%, transparent); background: color-mix(in srgb, var(--news-calendar) 7%, transparent); }
+.news-terminal .news-topic { --topic-color: var(--article-color); color: var(--topic-color); border: 1px solid color-mix(in srgb, var(--topic-color) 22%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--topic-color) 6%, transparent); padding-inline: 5px; }
+.news-terminal .news-topic[data-topic="energy"] { --topic-color: var(--news-energy); }
+.news-terminal .news-topic[data-topic="bonds"],
+.news-terminal .news-topic[data-topic="monetary_policy"] { --topic-color: var(--news-rates); }
+.news-terminal .news-topic[data-topic="geopolitics"] { --topic-color: var(--news-geopolitics); }
+.news-terminal .news-topic[data-topic="technology"] { --topic-color: var(--news-technology); }
+@media (hover: hover) {
+  .news-terminal .news-article a:hover { color: var(--article-color); }
+}

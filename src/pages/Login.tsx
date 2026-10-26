@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthProvider';
 import { LogIn, AlertTriangle } from 'lucide-react';
 
 export function Login() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +21,7 @@ export function Login() {
     if (error) {
       setError(error);
     } else {
-      navigate('/overview', { replace: true });
+      navigate(location.state?.from === '/news' ? '/news' : '/overview', { replace: true });
     }
   };
 
