@@ -1,0 +1,59 @@
+# Supabase free-tier projects are paused after ~7 consecutive days without
+# activity. A paused project stops answering on its API host, which surfaces in
+# the browser as `NetworkError when attempting to fetch resource` — the admin
+# login stops working and the public landing loses every figure.
+#
+# One cheap authenticated read every three days keeps the pause timer from ever
+# reaching seven. Restoring after a pause is manual (dashboard only), so this
+# runs unattended and fails loudly when the ping does not come back healthy.
+name: Supabase keepalive
+
+on:
+  schedule:
+    # 02:17 UTC every third day. Off-the-hour on purpose: scheduled jobs are
+    # queued on a best-effort basis and :00 is the most contended slot.
+    - cron: '17 2 */3 * *'
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping PostgREST
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "::error::SUPABASE_URL and SUPABASE_ANON_KEY repository secrets are required."
+            exit 1
+          fi
+
+          # A HEAD against an anon-readable view: no rows transferred, but it
+          # traverses PostgREST to Postgres, which is what counts as activity.
+          # Retried because a single cold-start timeout should not page anyone.
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              --max-time 30 \
+              -X HEAD \
+              -H "apikey: ${SUPABASE_ANON_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+              "${SUPABASE_URL}/rest/v1/public_desk_aggregates?select=desk&limit=1" || echo "000")
+
+            echo "attempt ${attempt}: HTTP ${code}"
+            if [ "${code}" = "200" ]; then
+              echo "Supabase reachable — pause timer reset."
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+
+          echo "::error::Supabase did not return 200 after 3 attempts (last: ${code}). The project may be paused — restore it at https://supabase.com/dashboard/project/_/settings/general"
+          exit 1
